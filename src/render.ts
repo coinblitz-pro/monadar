@@ -1,0 +1,223 @@
+import { renderHistory } from './alerts'
+import { c } from './colors'
+import { bell, config, interval, logFile, RPC_URL, thresholds } from './config'
+import { BUILD_VERSION } from './protocol'
+import { renderTable } from './format'
+import { getRecent, recentCount } from './log'
+import type { CounterCell, Frame } from './protocol'
+import { ui } from './ui'
+import type { Cell } from './types'
+
+const EOL = '\x1b[K'
+
+// Last rendered dashboard body (timestamp → history). Set by applyFrame(),
+// reused by paint() on every keypress so overlays toggle without a new frame.
+let lastBody = ''
+
+function fmtCell(cell: CounterCell): string {
+  const v = cell.value !== null ? String(cell.value) : '?'
+  return `${v} Δ${cell.delta !== null ? cell.delta : '-'}`
+}
+
+// Build the colored dashboard body from a Frame (or an error line), using this
+// client's own thresholds for coloring. Stores it for subsequent repaints.
+export function applyFrame(f: Frame) {
+  if (f.error === 'rpc') {
+    lastBody = `${c.red('ERROR: RPC failed')}${EOL}\n` + renderHistory(f.history)
+    return
+  }
+  const blockDeltaStr = f.blockDelta !== null ? String(f.blockDelta) : '-'
+  if (f.error === 'metrics') {
+    lastBody = `block: ${f.block} Δ${blockDeltaStr}  |  ${c.yellow('metrics unavailable')}${EOL}\n`
+      + renderHistory(f.history)
+    return
+  }
+
+  const syncVal = f.syncing === 1
+    ? (f.syncPct ? c.red(`YES ${f.syncPct}%`) : c.red('YES!'))
+    : c.green('no')
+
+  const blockVal = f.blockDelta === 0
+    ? c.red(`${f.block} Δ${blockDeltaStr}`)
+    : `${f.block} Δ${blockDeltaStr}`
+
+  const votesVal = f.votes.delta === 0 && f.blockDelta !== null && f.blockDelta > 0
+    ? c.red(fmtCell(f.votes))
+    : fmtCell(f.votes)
+
+  const tmoVal = f.timeouts.delta !== null && f.timeouts.delta > 0
+    ? c.yellow(fmtCell(f.timeouts))
+    : fmtCell(f.timeouts)
+
+  const tcVal = f.tc.delta !== null && f.tc.delta > thresholds.tc_max
+    ? c.yellow(fmtCell(f.tc))
+    : fmtCell(f.tc)
+
+  const lagEvtVal = f.lagEvtDelta !== null && f.lagEvtDelta > 0
+    ? c.yellow(`Δ${f.lagEvtDelta}`)
+    : `Δ${f.lagEvtDelta !== null ? f.lagEvtDelta : '-'}`
+
+  const execLagVal = f.execLag > thresholds.lag_max
+    ? c.yellow(String(f.execLag))
+    : String(f.execLag)
+
+  const peersVal = f.peers !== null && f.peers < thresholds.peers_min
+    ? c.yellow(String(f.peers))
+    : String(f.peers ?? '?')
+
+  const p99Val = f.p99 !== null && f.p99 > thresholds.p99_max
+    ? c.yellow(`${f.p99}ms`)
+    : `${f.p99 ?? '?'}ms`
+
+  const rpcVal = f.rpcMs > thresholds.rpc_max
+    ? c.yellow(`${f.rpcMs}ms`)
+    : `${f.rpcMs}ms`
+
+  let execVal: string
+  if (f.execBlock !== null) {
+    const diff = f.execBlock - f.block
+    const diffStr = diff >= 0 ? `+${diff}` : String(diff)
+    execVal = diff > thresholds.lag_max
+      ? c.yellow(`${f.execBlock} (${diffStr})`)
+      : `${f.execBlock} ${c.dim(`(${diffStr})`)}`
+  } else {
+    execVal = '?'
+  }
+
+  const propVal = f.proposals.delta !== null && f.proposals.delta > 0
+    ? c.cyan(fmtCell(f.proposals))
+    : fmtCell(f.proposals)
+
+  let votedVal = '?'
+  if (f.votedPct !== null) {
+    votedVal = f.votedPct >= 99.9
+      ? c.green(`${f.votedPct.toFixed(1)}%`)
+      : f.votedPct < 95
+        ? c.red(`${f.votedPct.toFixed(1)}%`)
+        : c.yellow(`${f.votedPct.toFixed(1)}%`)
+  }
+
+  const row1: Cell[] = [
+    { label: 'block:', value: `${blockVal} ${c.dim(`${f.bps}/s`)}` },
+    { label: 'ver:', value: f.ver },
+    { label: 'up:', value: f.uptime },
+    { label: 'sync:', value: syncVal },
+    { label: 'peers:', value: peersVal },
+    { label: 'sessions:', value: String(f.sessions ?? '?') },
+  ]
+  const row2: Cell[] = [
+    { label: 'commits:', value: fmtCell(f.commits) },
+    { label: 'votes:', value: votesVal },
+    { label: 'tmo:', value: tmoVal },
+    { label: 'tc:', value: tcVal },
+    { label: 'lag:', value: execLagVal },
+    { label: 'lag_evt:', value: lagEvtVal },
+  ]
+  const row3: Cell[] = [
+    { label: 'exec:', value: execVal },
+    { label: 'tx:', value: fmtCell(f.tx) },
+    { label: 'txpool:', value: String(f.txpool ?? '?') },
+    { label: 'fwd:', value: fmtCell(f.fwd) },
+    { label: 'p99:', value: p99Val },
+    { label: 'rpc:', value: rpcVal },
+  ]
+  const row4: Cell[] = [
+    { label: 'key:', value: c.cyan(f.key) },
+    { label: 'net:', value: f.network },
+    { label: 'stake:', value: f.stakePct },
+    { label: 'prop:', value: propVal },
+    { label: 'leader:', value: f.leaderPct },
+    { label: 'voted:', value: votedVal },
+  ]
+
+  const lines = renderTable([ row1, row2, row3, row4 ])
+  const status = f.status === 'crit' ? c.red('● CRITICAL')
+    : f.status === 'warn' ? c.yellow('▲ WARNING ')
+      : c.green('● OK      ')
+
+  const versionMismatch = f.buildVersion !== BUILD_VERSION
+  const versionHint = versionMismatch
+    ? `  ${c.yellow('restart needed')} ${c.dim(`(daemon: ${f.buildVersion}, viewer: ${BUILD_VERSION})`)}`
+    : ''
+  let body = `${c.cyan('monadar')}  ${c.dim(f.ts)}${versionHint}${EOL}\n${EOL}\n`
+  for (const line of lines) {
+    body += `${line}${EOL}\n`
+  }
+  body += `${EOL}\n`
+  body += `${status}${EOL}\n`
+  body += renderHistory(f.history)
+  lastBody = body
+}
+
+function renderHelp(): string {
+  let out = `${EOL}\n`
+  const h = (l1: string, d1: string, l2?: string, d2?: string) => {
+    const left = l1.padEnd(10) + ' ' + d1.padEnd(35)
+    const right = l2 && d2 ? l2.padEnd(10) + ' ' + d2 : ''
+    return c.dim(left + right) + EOL + '\n'
+  }
+  out += h('block', 'block number + rate (blocks/sec)', 'commits', 'consensus blocks committed')
+  out += h('ver', 'node software version', 'votes', 'votes created by this node')
+  out += h('up', 'node uptime', 'tmo', 'local timeouts (growth = problem)')
+  out += h('sync', 'state sync (no = fully synced)', 'tc', 'timeout certificates')
+  out += h('peers', 'discovered peers', 'lag', 'exec lag (blocks behind consensus)')
+  out += h('sessions', 'wireauth encrypted sessions', 'lag_evt', 'execution lagging events delta')
+  out += h('exec', 'execution ledger block (+diff)', 'key', 'validator secp256k1 public key')
+  out += h('tx', 'transactions committed', 'net', 'network name')
+  out += h('txpool', 'transactions in pool', 'stake', 'node stake in basis points (%)')
+  out += h('fwd', 'forwarded transactions received', 'prop', 'proposals created (was leader)')
+  out += h('p99', 'UDP broadcast latency p99', 'leader', 'leader rate (prop/handled)')
+  out += h('rpc', 'RPC response time', 'voted', 'vote participation (votes/handled)')
+  const infoFlags = [
+    `every ${interval / 1000}s`,
+    config.telegram ? 'tg' : null,
+    bell ? 'bell' : null,
+    logFile ? `log → ${logFile}` : null,
+  ].filter(Boolean).join(' · ')
+  out += `${EOL}\n`
+  out += c.dim(`${RPC_URL} · ${infoFlags}`) + EOL + '\n'
+  return out
+}
+
+function renderLog(): string {
+  const rows = process.stdout.rows || 40
+  const cols = process.stdout.columns || 120
+  const avail = Math.max(5, rows - 5)
+  const lines = getRecent(avail)
+  let out = `${EOL}\n`
+  out += `${c.cyan('▌ Full log')}  ${c.dim(`(${recentCount()} lines · newest at bottom)`)}${EOL}\n`
+  out += `${EOL}\n`
+  if (lines.length === 0) {
+    out += `${c.dim('(no log lines yet)')}${EOL}\n`
+  } else {
+    for (const l of lines) {
+      const t = l.length > cols - 2 ? l.slice(0, cols - 3) + '…' : l
+      out += ` ${c.dim(t)}${EOL}\n`
+    }
+  }
+  return out
+}
+
+function renderFooter(): string {
+  const keys = ui.overlay === 'none'
+    ? c.dim('ctrl+o log  ctrl+h help')
+    : c.dim('esc close  ctrl+o log  ctrl+h help')
+  let out = `${EOL}\n`
+  out += `${keys}${EOL}\n`
+  return out
+}
+
+// Compose and write the current frame: cursor home → body/overlay → footer →
+// clear-to-end. Called after each frame and on every keypress for instant redraw.
+export function paint() {
+  let out = '\x1b[H'
+  if (ui.overlay === 'log') {
+    out += renderLog()
+  } else {
+    out += lastBody
+    if (ui.overlay === 'help') out += renderHelp()
+  }
+  out += renderFooter()
+  out += '\x1b[J'
+  process.stdout.write(out)
+}

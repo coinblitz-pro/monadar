@@ -1,0 +1,15 @@
+{
+  "name": "monadar",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/monadar.js --banner:js='#!/usr/bin/env node' --define:__BUILD_HASH__=\"\\\"$(git rev-parse --short HEAD)\\\"\" && chmod +x dist/monadar.js",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.1",
+    "esbuild": "^0.27.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
