@@ -1,6 +1,6 @@
 import { verbose } from './config'
 
-export type Overlay = 'none' | 'help' | 'log'
+export type Overlay = 'none' | 'help' | 'log' | 'events'
 
 // Shared UI state, mutated by keypresses, read by the renderer.
 export const ui = {
@@ -13,6 +13,7 @@ function toggle(o: Overlay) {
 
 // Wire stdin in raw mode so single keypresses toggle overlays instantly.
 // onRepaint redraws the last frame; onQuit performs graceful shutdown.
+// Keys are matched by control-code so the source stays free of literal bytes.
 export function setupInput(onRepaint: () => void, onQuit: () => void) {
   const stdin = process.stdin
   if (!stdin.isTTY) return
@@ -20,11 +21,12 @@ export function setupInput(onRepaint: () => void, onQuit: () => void) {
   stdin.resume()
   stdin.setEncoding('utf8')
   stdin.on('data', (key: string) => {
-    switch (key) {
-      case '': onQuit(); return           // ctrl+c
-      case '': toggle('log'); break        // ctrl+o
-      case '': toggle('help'); break       // ctrl+h
-      case '': ui.overlay = 'none'; break  // esc
+    switch (key.charCodeAt(0)) {
+      case 3: onQuit(); return            // ctrl+c
+      case 15: toggle('log'); break       // ctrl+o
+      case 5: toggle('events'); break     // ctrl+e
+      case 8: toggle('help'); break       // ctrl+h
+      case 27: ui.overlay = 'none'; break // esc
       default: return
     }
     onRepaint()

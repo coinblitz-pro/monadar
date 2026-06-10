@@ -1,6 +1,7 @@
 import { execFileSync } from 'child_process'
 import { existsSync, writeFileSync } from 'fs'
 import { dirname, resolve } from 'path'
+import { seedHistory } from './alerts'
 import { attach } from './client'
 import { createCollector } from './collect'
 import { bell, cpu, interval, shouldInit, socket } from './config'
@@ -23,7 +24,7 @@ if (shouldInit) {
     const template = JSON.stringify({
       telegram: { token: '', chat_id: '', delay_ticks: 3, cooldown_min: 5 },
       thresholds: { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0 },
-      log: { file: '', flush_sec: 60, max_size_mb: 50, keep: 5 },
+      log: { file: '', flush_sec: 60, max_size_mb: 50, keep: 5, events: '' },
       socket: '',
       cpu: '',
     }, null, 2)
@@ -45,6 +46,8 @@ function applyAffinity() {
 
 // Standalone mode: poll + render in one process, no daemon/socket (old behavior).
 async function runForeground() {
+  seedHistory()
+
   async function shutdown() {
     await flushLog()
     if (process.stdin.isTTY) process.stdin.setRawMode(false)

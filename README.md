@@ -121,7 +121,7 @@ unit's `ExecStart`, so the daemon runs with the same configuration.
 {
   "telegram": { "token": "", "chat_id": "", "delay_ticks": 3, "cooldown_min": 5 },
   "thresholds": { "peers_min": 50, "p99_max": 500, "lag_max": 5, "rpc_max": 200, "tc_max": 0 },
-  "log": { "file": "", "flush_sec": 60, "max_size_mb": 50, "keep": 5 },
+  "log": { "file": "", "flush_sec": 60, "max_size_mb": 50, "keep": 5, "events": "" },
   "socket": "",
   "cpu": ""
 }
@@ -130,7 +130,8 @@ unit's `ExecStart`, so the daemon runs with the same configuration.
 - **telegram** — bot `token` and `chat_id` for alerts. `delay_ticks`: a critical alert must
   persist this many ticks before notifying; `cooldown_min`: minimum minutes between repeats.
 - **thresholds** — same values as the threshold flags above; CLI flags override the config.
-- **log** — `file` path, flush interval `flush_sec`, and rotation (see below).
+- **log** — `file` path, flush interval `flush_sec`, rotation (see below), and `events` — the
+  path of the persistent event log (defaults to `events.log` next to `file`).
 - **socket** — override the unix socket path.
 - **cpu** — `taskset` CPU list for the daemon.
 
@@ -158,6 +159,10 @@ drop means the process restarted). On restart all node counters reset to 0, so t
 counter deltas are neutralized to avoid bogus values, the event is logged to the history, and a
 one-off Telegram notification is sent.
 
+Every event (warnings, resolves, restarts) is appended to a persistent **event log** so history
+survives a daemon restart — on startup the daemon reloads the most recent events back into the
+strip shown under the status line. The full event log is browsable in the viewer via **Ctrl+E**.
+
 ## Dashboard
 
 Four rows; cells turn yellow on a warning threshold and red on a critical condition.
@@ -172,6 +177,7 @@ Four rows; cells turn yellow on a warning threshold and red on a critical condit
 | Key | Action |
 |-----|--------|
 | `Ctrl+O` | Toggle the full log view |
+| `Ctrl+E` | Toggle the full event log view |
 | `Ctrl+H` | Toggle the parameter help panel |
 | `Esc` | Close the current overlay |
 | `Ctrl+C` | Quit the viewer (the daemon keeps running) |

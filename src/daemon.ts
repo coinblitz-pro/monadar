@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, unlinkSync } from 'fs'
 import { createServer, type Socket } from 'net'
+import { seedHistory } from './alerts'
 import { createCollector } from './collect'
 import { interval } from './config'
 import { flushLog, getRecent, initLogTimer, logLine } from './log'
@@ -10,6 +11,7 @@ const BACKLOG_LINES = 200
 // Headless collector: polls on the interval, broadcasts each Frame to connected
 // viewers over a unix socket, writes the log file, and sends Telegram alerts.
 export async function runDaemon() {
+  seedHistory()
   const path = socketPath()
   if (existsSync(path)) {
     // Stale socket from a previous run, or another daemon. Try to remove it;

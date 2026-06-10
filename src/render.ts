@@ -1,6 +1,7 @@
 import { renderHistory } from './alerts'
 import { c } from './colors'
 import { thresholds } from './config'
+import { loadEvents } from './events'
 import { BUILD_VERSION } from './protocol'
 import { renderTable } from './format'
 import { getRecent, recentCount } from './log'
@@ -211,10 +212,37 @@ function renderLog(): string {
   return out
 }
 
+function eventIcon(level: string): string {
+  return level === 'crit' ? c.red('●')
+    : level === 'error' ? c.red('✗')
+      : level === 'resolved' ? c.green('✓')
+        : c.yellow('▲')
+}
+
+// Full persisted event log (warnings, resolves, restarts), newest at bottom.
+// Reads the events file fresh each paint so it reflects the daemon's writes.
+function renderEvents(): string {
+  const rows = process.stdout.rows || 40
+  const avail = Math.max(5, rows - 5)
+  const all = loadEvents()
+  let out = `${EOL}\n`
+  out += `${c.cyan('▌ Events')}  ${c.dim(`(${all.length} total · newest at bottom)`)}${EOL}\n`
+  out += `${EOL}\n`
+  if (all.length === 0) {
+    out += `${c.dim('(no events recorded — set log.file or log.events to persist)')}${EOL}\n`
+  } else {
+    for (const e of all.slice(-avail)) {
+      const when = `${e.at.slice(5, 10)} ${e.at.slice(11, 19)}`
+      out += ` ${c.dim(when)} ${eventIcon(e.level)} ${e.text}${EOL}\n`
+    }
+  }
+  return out
+}
+
 function renderFooter(): string {
   const keys = ui.overlay === 'none'
-    ? c.dim('ctrl+o log  ctrl+h help')
-    : c.dim('esc close  ctrl+o log  ctrl+h help')
+    ? c.dim('ctrl+o log  ctrl+e events  ctrl+h help')
+    : c.dim('esc close  ctrl+o log  ctrl+e events  ctrl+h help')
   let out = `${EOL}\n`
   out += `${keys}${EOL}\n`
   return out
@@ -226,6 +254,8 @@ export function paint() {
   let out = '\x1b[H'
   if (ui.overlay === 'log') {
     out += renderLog()
+  } else if (ui.overlay === 'events') {
+    out += renderEvents()
   } else {
     out += lastBody
     if (ui.overlay === 'help') out += renderHelp()

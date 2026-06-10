@@ -72,6 +72,10 @@ export const thresholds = {
 }
 
 export const logFile = logFileArg || config.log?.file || null
+// Persistent event log (warning state changes, restarts) — survives daemon
+// restarts. Defaults next to the main log file; disabled if neither is set.
+export const eventsFile = config.log?.events
+  || (logFile ? `${dirname(logFile)}/events.log` : null)
 export const logFlushMs = (config.log?.flush_sec ?? 60) * 1000
 // Rotate the log when it reaches this size, keeping `logKeep` numbered backups
 // (file.1 … file.N). max_size_mb <= 0 disables rotation (unbounded growth).

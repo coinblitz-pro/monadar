@@ -1,5 +1,6 @@
 import { c } from './colors'
 import { config, thresholds } from './config'
+import { loadEvents, persistEvent } from './events'
 import type { HistoryEntry, Snapshot, Warning } from './types'
 
 const MAX_HISTORY = 5
@@ -8,6 +9,18 @@ const warningHistory: HistoryEntry[] = []
 export function pushHistory(entry: HistoryEntry) {
   warningHistory.push(entry)
   if (warningHistory.length > MAX_HISTORY) warningHistory.shift()
+  persistEvent(entry)
+}
+
+// Restore the recent-events strip from the persisted file on daemon startup so
+// a restart doesn't blank it. Seeds in-memory only (no re-persist).
+export function seedHistory() {
+  for (const e of loadEvents().slice(-MAX_HISTORY)) {
+    warningHistory.push({ time: e.at.slice(11, 19), level: e.level, text: e.text })
+  }
+  if (warningHistory.length > MAX_HISTORY) {
+    warningHistory.splice(0, warningHistory.length - MAX_HISTORY)
+  }
 }
 
 // Snapshot of the current event history (carried in each Frame to the client).
