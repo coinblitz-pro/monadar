@@ -3,25 +3,42 @@ import { existsSync, unlinkSync, writeFileSync } from 'fs'
 import { connect } from 'net'
 import { resolve } from 'path'
 import { c } from './colors'
-import { socketPath } from './protocol'
+import { cliArgs } from './config'
+import { socketPath } from './socket'
 
 const SYSTEMD_PATH = '/etc/systemd/system/monadar.service'
 const LAUNCHD_LABEL = 'com.monadar'
 const LAUNCHD_PATH = `/Library/LaunchDaemons/${LAUNCHD_LABEL}.plist`
 
-// Mode/command words and meta flags that must not be forwarded into ExecStart.
-const DROP = new Set([ 'install', 'uninstall', 'status', 'daemon', '--foreground', '--init', '--print' ])
-
 // Flags the user passed to `install` are forwarded to the daemon's ExecStart
 // (e.g. --config, --socket, --cpu, --log, interval), so the service runs with
 // the same configuration it was installed with.
 function daemonArgs(): string[] {
-  const passthrough = process.argv.slice(2).filter(a => !DROP.has(a))
+  const passthrough = cliArgs.servicePassthrough
   return [ resolve(process.argv[1]), 'daemon', ...passthrough ]
 }
 
-function systemdUnit(): string {
-  const exec = [ process.execPath, ...daemonArgs() ].join(' ')
+export function quoteSystemdArg(value: string): string {
+  const escapedSpecifiers = value.replace(/%/g, '%%').replace(/\$/g, () => '$$')
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(escapedSpecifiers)) return escapedSpecifiers
+  return `"${escapedSpecifiers
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\t/g, '\\t')}"`
+}
+
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+export function buildSystemdUnit(argv: string[]): string {
+  const exec = argv.map(quoteSystemdArg).join(' ')
   return [
     '[Unit]',
     'Description=monadar node monitor',
@@ -39,9 +56,8 @@ function systemdUnit(): string {
   ].join('\n')
 }
 
-function launchdPlist(): string {
-  const argv = [ process.execPath, ...daemonArgs() ]
-  const args = argv.map(a => `    <string>${a}</string>`).join('\n')
+export function buildLaunchdPlist(argv: string[]): string {
+  const args = argv.map(a => `    <string>${xmlEscape(a)}</string>`).join('\n')
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
@@ -64,7 +80,8 @@ function launchdPlist(): string {
 
 export function install(opts: { print?: boolean }) {
   const isMac = process.platform === 'darwin'
-  const unit = isMac ? launchdPlist() : systemdUnit()
+  const argv = [ process.execPath, ...daemonArgs() ]
+  const unit = isMac ? buildLaunchdPlist(argv) : buildSystemdUnit(argv)
   const path = isMac ? LAUNCHD_PATH : SYSTEMD_PATH
 
   if (opts.print) {

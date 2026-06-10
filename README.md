@@ -48,6 +48,7 @@ During development you can run directly with tsx:
 
 ```sh
 npm run dev          # = tsx src/index.ts
+npm test             # unit tests for parsing, frame math, metrics, service generation
 npm run typecheck    # = tsc --noEmit
 ```
 

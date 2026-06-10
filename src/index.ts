@@ -1,18 +1,16 @@
 import { execFileSync } from 'child_process'
 import { existsSync, writeFileSync } from 'fs'
 import { dirname, resolve } from 'path'
-import { seedHistory } from './alerts'
 import { attach } from './client'
 import { createCollector } from './collect'
-import { bell, cpu, interval, shouldInit, socket } from './config'
+import { bell, cliArgs, cpu, interval, shouldInit, socket } from './config'
 import { runDaemon } from './daemon'
+import { seedHistory } from './event_history'
 import { install, status, uninstall } from './install'
 import { flushLog, initLogTimer, logLine } from './log'
-import { setSocketPath } from './protocol'
 import { applyFrame, paint } from './render'
+import { setSocketPath } from './socket'
 import { setupInput } from './ui'
-
-const args = process.argv.slice(2)
 
 setSocketPath(socket)
 
@@ -72,17 +70,17 @@ async function runForeground() {
   }
 }
 
-if (args.includes('install')) {
-  install({ print: args.includes('--print') })
-} else if (args.includes('uninstall')) {
+if (cliArgs.install) {
+  install({ print: cliArgs.print })
+} else if (cliArgs.uninstall) {
   uninstall()
-} else if (args.includes('status')) {
+} else if (cliArgs.status) {
   status()
 } else {
   applyAffinity()
-  if (args.includes('daemon')) {
+  if (cliArgs.daemon) {
     runDaemon()
-  } else if (args.includes('--foreground')) {
+  } else if (cliArgs.foreground) {
     runForeground()
   } else {
     attach()

@@ -1,10 +1,12 @@
 import { chmodSync, existsSync, unlinkSync } from 'fs'
 import { createServer, type Socket } from 'net'
-import { seedHistory } from './alerts'
 import { createCollector } from './collect'
 import { interval } from './config'
+import { seedHistory } from './event_history'
 import { flushLog, getRecent, initLogTimer, logLine } from './log'
-import { encodeMsg, socketPath, type Frame } from './protocol'
+import { encodeMsg } from './protocol'
+import { socketPath } from './socket'
+import type { Frame } from './types'
 
 const BACKLOG_LINES = 200
 

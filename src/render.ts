@@ -1,13 +1,12 @@
-import { renderHistory } from './alerts'
+import { BUILD_VERSION } from './build'
 import { c } from './colors'
 import { thresholds } from './config'
 import { loadEvents } from './events'
-import { BUILD_VERSION } from './protocol'
 import { renderTable } from './format'
+import { eventIcon, renderHistory } from './history_render'
 import { getRecent, recentCount } from './log'
-import type { CounterCell, Frame } from './protocol'
 import { ui } from './ui'
-import type { Cell } from './types'
+import type { Cell, CounterCell, Frame } from './types'
 
 const EOL = '\x1b[K'
 
@@ -77,8 +76,9 @@ export function applyFrame(f: Frame) {
   let execVal: string
   if (f.execBlock !== null) {
     const diff = f.execBlock - f.block
+    const lag = Math.max(0, f.block - f.execBlock)
     const diffStr = diff >= 0 ? `+${diff}` : String(diff)
-    execVal = diff > thresholds.lag_max
+    execVal = lag > thresholds.lag_max
       ? c.yellow(`${f.execBlock} (${diffStr})`)
       : `${f.execBlock} ${c.dim(`(${diffStr})`)}`
   } else {
@@ -210,13 +210,6 @@ function renderLog(): string {
     }
   }
   return out
-}
-
-function eventIcon(level: string): string {
-  return level === 'crit' ? c.red('●')
-    : level === 'error' ? c.red('✗')
-      : level === 'resolved' ? c.green('✓')
-        : c.yellow('▲')
 }
 
 // Full persisted event log (warnings, resolves, restarts), newest at bottom.

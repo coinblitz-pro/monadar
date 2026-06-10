@@ -2,8 +2,9 @@ import { connect, type Socket } from 'net'
 import { c } from './colors'
 import { bell } from './config'
 import { logLine } from './log'
-import { createDecoder, socketPath } from './protocol'
+import { createDecoder } from './protocol'
 import { applyFrame, paint } from './render'
+import { socketPath } from './socket'
 import { setupInput } from './ui'
 
 function hint(path: string): string {
