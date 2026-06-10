@@ -1,6 +1,6 @@
 import { renderHistory } from './alerts'
 import { c } from './colors'
-import { bell, config, interval, logFile, RPC_URL, thresholds } from './config'
+import { thresholds } from './config'
 import { BUILD_VERSION } from './protocol'
 import { renderTable } from './format'
 import { getRecent, recentCount } from './log'
@@ -14,10 +14,6 @@ const EOL = '\x1b[K'
 // reused by paint() on every keypress so overlays toggle without a new frame.
 let lastBody = ''
 
-// Build version of the connected daemon (from the last frame), shown in the
-// help panel alongside the viewer's own version so a mismatch is explainable.
-let daemonVersion = '?'
-
 function fmtCell(cell: CounterCell): string {
   const v = cell.value !== null ? String(cell.value) : '?'
   return `${v} Δ${cell.delta !== null ? cell.delta : '-'}`
@@ -26,7 +22,6 @@ function fmtCell(cell: CounterCell): string {
 // Build the colored dashboard body from a Frame (or an error line), using this
 // client's own thresholds for coloring. Stores it for subsequent repaints.
 export function applyFrame(f: Frame) {
-  daemonVersion = f.buildVersion ?? '?'
   if (f.error === 'rpc') {
     lastBody = `${c.red('ERROR: RPC failed')}${EOL}\n` + renderHistory(f.history)
     return
@@ -173,21 +168,25 @@ function renderHelp(): string {
   out += h('fwd', 'forwarded transactions received', 'prop', 'proposals created (was leader)')
   out += h('p99', 'UDP broadcast latency p99', 'leader', 'leader rate (prop/handled)')
   out += h('rpc', 'RPC response time', 'voted', 'vote participation (votes/handled)')
+  return out
+}
 
-  // Runtime config of the daemon this viewer is attached to, plus build versions
-  // so a "restart needed" banner (daemon ≠ viewer) is self-explanatory here.
-  const r = (label: string, value: string) => c.dim(label.padEnd(10) + ' ' + value) + EOL + '\n'
-  out += `${EOL}\n`
-  out += c.dim('Runtime') + EOL + '\n'
-  out += r('rpc', RPC_URL)
-  out += r('poll', `every ${interval / 1000}s`)
-  out += r('telegram', config.telegram ? 'on' : 'off')
-  out += r('bell', bell ? 'on' : 'off')
-  out += r('log', logFile ? `→ ${logFile}` : 'off')
-  const verStr = daemonVersion === BUILD_VERSION
-    ? BUILD_VERSION
-    : `${c.yellow(`daemon ${daemonVersion} ≠ viewer ${BUILD_VERSION} — restart the daemon`)}`
-  out += r('version', verStr)
+// Word-wrap a long log line to the available width, breaking on spaces so
+// key=val pairs stay intact; continuation lines are indented for readability.
+function wrapLine(s: string, width: number): string[] {
+  if (width < 10 || s.length <= width) return [ s ]
+  const out: string[] = []
+  let rest = s
+  let indent = ''
+  while (rest.length > width) {
+    const limit = width - indent.length
+    let cut = rest.lastIndexOf(' ', limit)
+    if (cut <= 0) cut = limit
+    out.push(indent + rest.slice(0, cut))
+    rest = rest.slice(cut).replace(/^ +/, '')
+    indent = '    '
+  }
+  if (rest) out.push(indent + rest)
   return out
 }
 
@@ -195,16 +194,18 @@ function renderLog(): string {
   const rows = process.stdout.rows || 40
   const cols = process.stdout.columns || 120
   const avail = Math.max(5, rows - 5)
-  const lines = getRecent(avail)
+  // Wrap each entry, then keep the last `avail` visual lines (newest at bottom).
+  const wrapped: string[] = []
+  for (const l of getRecent(avail)) wrapped.push(...wrapLine(l, cols - 2))
+  const shown = wrapped.slice(-avail)
   let out = `${EOL}\n`
   out += `${c.cyan('▌ Full log')}  ${c.dim(`(${recentCount()} lines · newest at bottom)`)}${EOL}\n`
   out += `${EOL}\n`
-  if (lines.length === 0) {
+  if (shown.length === 0) {
     out += `${c.dim('(no log lines yet)')}${EOL}\n`
   } else {
-    for (const l of lines) {
-      const t = l.length > cols - 2 ? l.slice(0, cols - 3) + '…' : l
-      out += ` ${c.dim(t)}${EOL}\n`
+    for (const l of shown) {
+      out += ` ${c.dim(l)}${EOL}\n`
     }
   }
   return out
