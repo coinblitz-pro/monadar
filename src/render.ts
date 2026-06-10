@@ -14,6 +14,10 @@ const EOL = '\x1b[K'
 // reused by paint() on every keypress so overlays toggle without a new frame.
 let lastBody = ''
 
+// Build version of the connected daemon (from the last frame), shown in the
+// help panel alongside the viewer's own version so a mismatch is explainable.
+let daemonVersion = '?'
+
 function fmtCell(cell: CounterCell): string {
   const v = cell.value !== null ? String(cell.value) : '?'
   return `${v} Δ${cell.delta !== null ? cell.delta : '-'}`
@@ -22,6 +26,7 @@ function fmtCell(cell: CounterCell): string {
 // Build the colored dashboard body from a Frame (or an error line), using this
 // client's own thresholds for coloring. Stores it for subsequent repaints.
 export function applyFrame(f: Frame) {
+  daemonVersion = f.buildVersion ?? '?'
   if (f.error === 'rpc') {
     lastBody = `${c.red('ERROR: RPC failed')}${EOL}\n` + renderHistory(f.history)
     return
@@ -137,7 +142,7 @@ export function applyFrame(f: Frame) {
 
   const versionMismatch = f.buildVersion !== BUILD_VERSION
   const versionHint = versionMismatch
-    ? `  ${c.yellow('restart needed')} ${c.dim(`(daemon: ${f.buildVersion}, viewer: ${BUILD_VERSION})`)}`
+    ? `  ${c.yellow('restart needed')} ${c.dim(`(daemon ${f.buildVersion ?? '?'} ≠ viewer ${BUILD_VERSION})`)}`
     : ''
   let body = `${c.cyan('monadar')}  ${c.dim(f.ts)}${versionHint}${EOL}\n${EOL}\n`
   for (const line of lines) {
@@ -168,14 +173,21 @@ function renderHelp(): string {
   out += h('fwd', 'forwarded transactions received', 'prop', 'proposals created (was leader)')
   out += h('p99', 'UDP broadcast latency p99', 'leader', 'leader rate (prop/handled)')
   out += h('rpc', 'RPC response time', 'voted', 'vote participation (votes/handled)')
-  const infoFlags = [
-    `every ${interval / 1000}s`,
-    config.telegram ? 'tg' : null,
-    bell ? 'bell' : null,
-    logFile ? `log → ${logFile}` : null,
-  ].filter(Boolean).join(' · ')
+
+  // Runtime config of the daemon this viewer is attached to, plus build versions
+  // so a "restart needed" banner (daemon ≠ viewer) is self-explanatory here.
+  const r = (label: string, value: string) => c.dim(label.padEnd(10) + ' ' + value) + EOL + '\n'
   out += `${EOL}\n`
-  out += c.dim(`${RPC_URL} · ${infoFlags}`) + EOL + '\n'
+  out += c.dim('Runtime') + EOL + '\n'
+  out += r('rpc', RPC_URL)
+  out += r('poll', `every ${interval / 1000}s`)
+  out += r('telegram', config.telegram ? 'on' : 'off')
+  out += r('bell', bell ? 'on' : 'off')
+  out += r('log', logFile ? `→ ${logFile}` : 'off')
+  const verStr = daemonVersion === BUILD_VERSION
+    ? BUILD_VERSION
+    : `${c.yellow(`daemon ${daemonVersion} ≠ viewer ${BUILD_VERSION} — restart the daemon`)}`
+  out += r('version', verStr)
   return out
 }
 
