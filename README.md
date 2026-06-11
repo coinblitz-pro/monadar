@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="monadar" width="160">
+</p>
+
 # monadar
 
 CLI monitoring tool for a [Monad](https://monad.xyz) node. Polls the node's JSON-RPC
