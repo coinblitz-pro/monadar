@@ -1,11 +1,12 @@
 import { chmodSync, existsSync, unlinkSync } from 'fs'
 import { createServer, type Socket } from 'net'
 import { createCollector } from './collect'
-import { interval } from './config'
+import { config, interval } from './config'
 import { seedHistory } from './event_history'
 import { flushLog, getRecent, initLogTimer, logLine } from './log'
 import { encodeMsg } from './protocol'
 import { socketPath } from './socket'
+import { startTelegramBot } from './telegram_bot'
 import type { Frame } from './types'
 
 const BACKLOG_LINES = 200
@@ -23,6 +24,11 @@ export async function runDaemon() {
 
   const clients = new Set<Socket>()
   let lastFrame: Frame | null = null
+
+  // Telegram bot: answers /status, /events on demand via long polling.
+  const stopBot = config.telegram?.token && config.telegram.chat_id
+    ? startTelegramBot({ token: config.telegram.token, chatId: config.telegram.chat_id, getFrame: () => lastFrame })
+    : null
 
   const server = createServer((sock) => {
     sock.setNoDelay(true)
@@ -48,6 +54,7 @@ export async function runDaemon() {
   async function shutdown() {
     if (stopping) return
     stopping = true
+    stopBot?.()
     for (const s of clients) s.destroy()
     server.close()
     try { unlinkSync(path) } catch {}

@@ -168,6 +168,20 @@ Every event (warnings, resolves, restarts) is appended to a persistent **event l
 survives a daemon restart — on startup the daemon reloads the most recent events back into the
 strip shown under the status line. The full event log is browsable in the viewer via **Ctrl+E**.
 
+### Telegram bot
+
+When `telegram.token`/`chat_id` are configured, the daemon also runs a **Telegram bot** (via
+long polling — no public endpoint needed, works behind a firewall) that answers on demand:
+
+| Command | Reply |
+|---------|-------|
+| `/status` | Current block, lag, peers, p99, RPC, sync, uptime, version + active warnings |
+| `/events` | The recent-events list |
+| `/help` | List of commands |
+
+Only messages from the configured `chat_id` are answered. Telegram allows a single `getUpdates`
+consumer per token, so don't point a webhook or a second daemon at the same bot token.
+
 ## Dashboard
 
 Four rows; cells turn yellow on a warning threshold and red on a critical condition.
