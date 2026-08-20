@@ -69,7 +69,10 @@ export function createAlertProcessor(opts: {
   const pendingResolves = new Map<string, { warning: Warning; dur: string; ticks: number }>()
   const now = opts.now ?? Date.now
 
-  function processWarnings(ts: string, warnings: Warning[], snap: Snapshot): boolean {
+  // `observable` is false when the node is unreachable (RPC/metrics down): we
+  // can't tell whether the pre-existing warnings still hold, so we freeze them
+  // (don't resolve, don't re-alert) and only process the injected DOWN warning.
+  function processWarnings(ts: string, warnings: Warning[], snap: Snapshot, observable = true): boolean {
     const curWarnings = new Map(warnings.map(w => [ w.key, w ]))
     let newCrit = false
     const nowMs = now()
@@ -87,8 +90,14 @@ export function createAlertProcessor(opts: {
 
       if (w.level === 'crit' && ticks >= opts.delayTicks && !telegramSent.has(w.key)) {
         telegramSent.add(w.key)
-        opts.notifier.send(warningTelegramMessage(w, snap), w.key)
+        opts.notifier.send(w.notify ?? warningTelegramMessage(w, snap), w.key)
       }
+    }
+
+    if (!observable) {
+      // Keep prior warnings alive alongside the DOWN warning — no resolves while blind.
+      for (const [ key, w ] of curWarnings) prevWarnings.set(key, w)
+      return newCrit
     }
 
     for (const [ key, w ] of prevWarnings) {

@@ -155,9 +155,13 @@ of whether a log file is configured.
 ## Alerts & events
 
 Warnings are derived each tick from the thresholds (low peers, high p99/RPC, execution lag,
-timeouts/TCs) plus critical conditions (state-syncing, block not advancing, not voting). They
-show inline (yellow/red cells), accumulate in the event history, and — for critical ones that
-persist `delay_ticks` — are sent to Telegram.
+timeouts/TCs) plus critical conditions (state-syncing, block not advancing, not voting, and the
+node/RPC being unreachable). They show inline (yellow/red cells), accumulate in the event
+history, and — for critical ones that persist `delay_ticks` — are sent to Telegram.
+
+When the RPC endpoint stops responding (node down or unreachable), that itself is a **critical
+alert** — it fires on Telegram after `delay_ticks` rather than waiting for recovery, and while
+the node is blind the other warnings are frozen (not falsely resolved) until it comes back.
 
 A **node restart** is detected via a drop in `monad_total_uptime_us` (uptime is monotonic, so a
 drop means the process restarted). On restart all node counters reset to 0, so the tick's

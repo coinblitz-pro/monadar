@@ -14,7 +14,7 @@ export type Config = {
   socket?: string
 }
 
-export type Warning = { level: 'warn' | 'crit'; key: string; short: string; detail: string }
+export type Warning = { level: 'warn' | 'crit'; key: string; short: string; detail: string; notify?: string }
 export type HistoryEntry = { time: string; level: 'warn' | 'crit' | 'error' | 'resolved'; text: string }
 export type Cell = { label: string; value: string }
 

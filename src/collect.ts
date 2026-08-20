@@ -4,8 +4,20 @@ import { getHistory, pushHistory } from './event_history'
 import { buildTickFrame, createCollectorState, errorFrame, recordBlock } from './frame'
 import { readMetricsSnapshot } from './metric_snapshot'
 import { fetchBlockNumber, fetchMetricsText } from './poll'
-import { createTelegramNotifier } from './telegram'
-import type { Frame } from './types'
+import { createTelegramNotifier, downTelegramMessage } from './telegram'
+import type { Frame, Snapshot, Warning } from './types'
+
+function downWarning(level: Warning['level'], key: string, short: string, detail: string): Warning {
+  const w: Warning = { level, key, short, detail }
+  return { ...w, notify: downTelegramMessage(w) }
+}
+
+const RPC_DOWN = downWarning('crit', 'RPC_DOWN', 'RPC DOWN', 'RPC endpoint not responding — node may be down or unreachable')
+const METRICS_DOWN = downWarning('warn', 'METRICS_DOWN', 'METRICS DOWN', 'Metrics endpoint unavailable — node process may be down')
+const DOWN_SNAP: Snapshot = {
+  block: 0, blockDelta: null, bps: '?', lag: 0, peers: null, p99: null,
+  rpcMs: 0, syncing: null, syncPct: null, uptime: '?', ver: '?',
+}
 
 // The data half of the old tick(): polls RPC + metrics, holds the previous-tick
 // state needed for deltas, runs warning/Telegram logic, and returns a Frame.
@@ -28,8 +40,11 @@ export function createCollector() {
       block = rpc.block
       rpcMs = rpc.rpcMs
     } catch {
-      pushHistory({ time: ts, level: 'error', text: 'RPC failed' })
-      return errorFrame(ts, getHistory(), 'rpc')
+      // Node/RPC unreachable: raise a crit DOWN warning through the alert
+      // processor (notifies after delay_ticks, resolves on recovery) and freeze
+      // the other warnings since we can no longer observe them.
+      const newCrit = alerts.processWarnings(ts, [ RPC_DOWN ], DOWN_SNAP, false)
+      return { ...errorFrame(ts, getHistory(), 'rpc'), status: 'crit', newCrit }
     }
 
     const { blockDelta, bps } = recordBlock(state, block)
@@ -38,8 +53,8 @@ export function createCollector() {
     try {
       mt = await fetchMetricsText()
     } catch {
-      pushHistory({ time: ts, level: 'warn', text: 'Metrics endpoint unavailable' })
-      return errorFrame(ts, getHistory(), 'metrics', { block, blockDelta, bps })
+      alerts.processWarnings(ts, [ METRICS_DOWN ], DOWN_SNAP, false)
+      return { ...errorFrame(ts, getHistory(), 'metrics', { block, blockDelta, bps }), status: 'warn' }
     }
 
     const built = buildTickFrame(state, {

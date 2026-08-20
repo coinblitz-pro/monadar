@@ -37,6 +37,11 @@ export function restartTelegramMessage(uptimeFmt: string, snap: Snapshot): strin
   return `🔄 <b>NODE RESTART</b>\nuptime ${html(uptimeFmt)}\n${fmtSnap(snap)}`
 }
 
+// Alert body for an endpoint-down warning — no snapshot, since we have no data.
+export function downTelegramMessage(w: Warning): string {
+  return `🚨 <b>${html(w.short)}</b>\n${html(w.detail)}`
+}
+
 function statusIcon(s: Frame['status']): string {
   return s === 'crit' ? '🔴' : s === 'warn' ? '🟡' : '🟢'
 }
