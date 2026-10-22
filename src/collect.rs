@@ -8,6 +8,7 @@ use crate::event_history::{get_history, push_history};
 use crate::exec_log::{ExecSnapshot, ExecWindow, start_exec_log_tail};
 use crate::frame::{CollectorState, TickInput, build_tick_frame, error_frame, record_block, status_of};
 use crate::http;
+use crate::ledger_log::start_ledger_tail;
 use crate::metric_snapshot::read_metrics_snapshot;
 use crate::notify::{NullNotifier, start_telegram_outbox};
 use crate::otlp::{Labels, OtlpReceiver, start_otlp_receiver};
@@ -42,6 +43,7 @@ struct JournalView {
     exec: ExecSnapshot,
     rounds: Option<RoundSummary>,
     bft_silent_ms: Option<i64>,
+    ledger_silent_ms: Option<i64>,
 }
 
 // The data half of a tick: polls RPC + metrics, holds the previous-tick state
@@ -74,6 +76,7 @@ impl Collector {
         );
         let bft_log = start_bft_log_tail();
         bft_log.lock().unwrap().configure_self(s.node_key.as_deref());
+        start_ledger_tail(bft_log.clone());
         Collector {
             state: CollectorState::default(),
             alerts,
@@ -101,7 +104,7 @@ impl Collector {
         let now = now_ms();
         let exec = self.exec_log.lock().unwrap().snapshot(now as f64);
         let bft = self.bft_log.lock().unwrap();
-        JournalView { exec, rounds: bft.summary(now), bft_silent_ms: bft.silent_ms(now) }
+        JournalView { exec, rounds: bft.summary(now), bft_silent_ms: bft.silent_ms(now), ledger_silent_ms: bft.ledger_silent_ms(now) }
     }
 
     // For viewers between ticks: the current block from RPC and the executed
@@ -149,6 +152,7 @@ impl Collector {
                 exec_p99: j.exec.stats.map(|e| e.p99),
                 rounds: j.rounds.as_ref(),
                 bft_silent_ms: j.bft_silent_ms,
+                ledger_silent_ms: j.ledger_silent_ms,
             },
             &settings().thresholds,
         );
@@ -212,6 +216,7 @@ impl Collector {
                 rounds: j.rounds,
                 stalled_ms: sample.stalled_ms,
                 bft_silent_ms: j.bft_silent_ms,
+                ledger_silent_ms: j.ledger_silent_ms,
                 now_ms: now,
             },
         );

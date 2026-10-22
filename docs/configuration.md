@@ -90,7 +90,8 @@ unit's `ExecStart`, so the daemon runs with the same configuration.
   monadar scrapes `http://localhost:8889/metrics` instead. The choice is made at startup, so
   restart monadar after removing otelcol. Set `""` to always scrape.
 - **node_key**: the node's public secp256k1 key, reported as the `secp_key` label (otelcol used
-  to add it through its `resource` processor). Optional: monadar learns it from the bft journal.
+  to add it through its `resource` processor). monadar can learn it from the bft journal, but
+  only at DEBUG: set it when bft logs at INFO.
 - **heartbeat_url**: dead man's switch. The daemon GETs this URL every `heartbeat_sec` (default
   60) seconds, e.g. a [healthchecks.io](https://healthchecks.io) check or an Uptime Kuma push
   monitor. That service alerts when the pings stop. This is the only way to hear about the host,

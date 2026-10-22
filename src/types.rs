@@ -41,6 +41,13 @@ pub struct ExecStats {
     pub max: i64,
 }
 
+// p50/p99 of a delay over the last 10 minutes, ms.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Latency {
+    pub p50: i64,
+    pub p99: i64,
+}
+
 // Leader-round counters (bft_log.rs). led/ok/missed/failed/not_received/committed/txs
 // are for our node; net_rounds/net_missed are network-wide (rounds seen / rounds ended by TC).
 // late_tmo: rounds our node timed out on while the network completed them with a QC.
@@ -57,9 +64,10 @@ pub struct RoundAgg {
     pub net_rounds: u64,
     pub net_missed: u64,
     pub late_tmo: u64,
-    // Block size vs network: txs in each of our proposals, and the median txs of
-    // the network blocks right before it (load changes over time, so we compare
-    // with neighbours; the median ignores outliers). size_samples = our blocks counted.
+    // Block size vs network: the size of each of our proposals, and the median
+    // size of the network blocks right before it (load changes over time, so we
+    // compare with neighbours; the median ignores outliers). Size is gas used
+    // (ledger-tail) or the tx count (bft journal). size_samples = our blocks counted.
     pub size_our_txs: f64,
     pub size_peer_txs: f64,
     pub size_samples: u64,
@@ -112,6 +120,16 @@ pub struct RoundSummary {
     pub net10m: NetWindow,
     pub last_missed: Option<MissedRound>,
     pub rounds_per_sec: f64,
+    // monad-bft logs at DEBUG: late timeouts, unseen rounds and forwarded txs
+    // come only from there.
+    #[serde(default)]
+    pub bft_debug: bool,
+    // From ledger-tail: how late proposals reach us (now - block timestamp), and
+    // how long blocks take to finalize.
+    #[serde(default)]
+    pub proposal_delay: Option<Latency>,
+    #[serde(default)]
+    pub finality: Option<Latency>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

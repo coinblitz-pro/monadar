@@ -12,7 +12,7 @@ use crate::history_render::event_time;
 use crate::http;
 use crate::notify::{NoticeKind, Pending};
 use crate::rich::{Block, Msg, TableKind, Text, b, code, i, p};
-use crate::types::{EventLevel, Frame, FrameError, RoundAgg, RoundSummary, Snapshot, Status};
+use crate::types::{EventLevel, Frame, FrameError, Latency, RoundAgg, RoundSummary, Snapshot, Status};
 
 // Delivered later than this after the event: say so in the message.
 const LATE_MS: i64 = 60_000;
@@ -153,17 +153,19 @@ fn pct(n: u64, of: u64) -> String {
 }
 
 fn rounds_grid(r: &RoundSummary) -> Block {
+    // Known only while bft logs at DEBUG.
+    let debug = |n: u64| if r.bft_debug { n.to_string() } else { "?".into() };
     let size = |a: &RoundAgg| size_ratio(a).map(|x| format!("{}%", js_round(x * 100.0))).unwrap_or("-".into());
     let rows: Vec<(&str, String, String)> = vec![
         ("Led", r.h1.led.to_string(), r.h24.led.to_string()),
         ("Proposed OK", r.h1.ok.to_string(), r.h24.ok.to_string()),
         ("Missed", (r.h1.missed + r.h1.failed).to_string(), (r.h24.missed + r.h24.failed).to_string()),
-        ("Unseen", r.h1.not_received.to_string(), r.h24.not_received.to_string()),
-        ("Late timeouts", r.h1.late_tmo.to_string(), r.h24.late_tmo.to_string()),
+        ("Unseen", debug(r.h1.not_received), debug(r.h24.not_received)),
+        ("Late timeouts", debug(r.h1.late_tmo), debug(r.h24.late_tmo)),
         ("Blocks", r.h1.committed.to_string(), r.h24.committed.to_string()),
         ("Txs", r.h1.txs.to_string(), r.h24.txs.to_string()),
         ("Size vs network", size(&r.h1), size(&r.h24)),
-        ("Txs forwarded to us", r.h1.fwd_txs.to_string(), r.h24.fwd_txs.to_string()),
+        ("Txs forwarded to us", debug(r.h1.fwd_txs), debug(r.h24.fwd_txs)),
     ];
     let mut grid = vec![vec![vec![], vec![p("1h")], vec![p("24h")]]];
     grid.extend(rows.into_iter().map(|(k, a, d)| vec![vec![p(k)], vec![p(a)], vec![p(d)]]));
@@ -226,6 +228,13 @@ pub fn status_message(f: &Frame) -> Msg {
                 ("Ended by TC, 10 min".into(), format!("{} of {} · {}", r.net10m.tc, r.net10m.rounds, pct(r.net10m.tc, r.net10m.rounds))),
                 ("Longest TC run, 10 min".into(), r.net10m.max_tc_run.to_string()),
             ];
+            let lat = |l: Option<Latency>| l.map(|l| format!("{} / {} ms", l.p50, l.p99));
+            if let Some(d) = lat(r.proposal_delay) {
+                net.push(("Proposal delay p50/p99".into(), d));
+            }
+            if let Some(d) = lat(r.finality) {
+                net.push(("Finality p50/p99".into(), d));
+            }
             if let Some(lm) = r.last_missed {
                 net.push((
                     "Our last missed round".into(),

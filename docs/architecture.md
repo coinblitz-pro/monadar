@@ -30,6 +30,7 @@ checks and debugging.
 | JSON-RPC `eth_blockNumber` (`localhost:8080`) | The block number: the newest proposed block, ahead of execution. Polled every tick, and every 100 ms while a viewer is attached. |
 | OTLP metrics (`--otel-endpoint` → `127.0.0.1:4317`) | Counters and gauges: votes, commits, timeouts, TCs, peers, sessions, stake, sync, uptime, version, txpool, broadcast p99. See [metrics.md](metrics.md). Falls back to scraping `localhost:8889/metrics` when the port is taken. |
 | `monad-execution` journal | `__exec_block` lines: the executed block and execution latency. |
+| `monad-ledger-tail` journal | Proposals with authors, TC rounds with their leaders, finalized blocks, block gas, proposal delay, finality. See [rounds.md](rounds.md). |
 | `monad-bft` journal (DEBUG) | Leader rounds, proposals, TCs, local timeouts, block sizes, forwarded transactions, our own key. See [rounds.md](rounds.md). |
 
 Execution latency comes from `__exec_block` lines in the `monad-execution` journal: each line
@@ -44,4 +45,4 @@ distinct message once.
 
 ## Our key
 
-Our key is `node_key` when set. Otherwise monadar learns it from the bft journal: only our own node logs `emitting create proposal command to txpool` with its `node_id`. Until then it uses the `secp_key` metric label. If `node_key` disagrees with the journal, the daemon says so in its log.
+Our key is `node_key` when set; set it when bft logs at INFO. Otherwise monadar learns it from the bft journal: only our own node logs `emitting create proposal command to txpool` with its `node_id`. Until then it uses the `secp_key` metric label. If `node_key` disagrees with the journal, the daemon says so in its log.

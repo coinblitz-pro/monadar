@@ -12,6 +12,7 @@ cells) and in the event history. Critical ones that persist `delay_ticks` go to 
 | `MISSED ROUND` | critical | one of our leader rounds missed or failed in the last 10 min ([rounds.md](rounds.md)) |
 | `METRICS DOWN` | warning | no OTLP export for 15 s, or the metrics endpoint fails |
 | `BFT LOG SILENT` | warning | the bft journal fed monadar and has been silent for 60 s |
+| `LEDGER TAIL SILENT` | warning | the ledger-tail journal fed monadar and has been silent for 60 s |
 | `LATE` | warning | we timed out on a round the network completed ([rounds.md](rounds.md)) |
 | `NET DEGRADED` | warning | many network rounds end by TC; not our node ([rounds.md](rounds.md)) |
 | `EXEC SLOW` | warning | execution latency p99 over the last 60 s exceeds `exec_ms_max` |
@@ -30,9 +31,9 @@ tick is not reported.
 A rule whose data source is unavailable is **unknown**, not clear. When RPC is down, the
 metrics endpoint is down, the execution journal goes quiet, or a metric disappears, the rules
 that depend on it keep their state: nothing is falsely resolved, and nothing new fires on
-missing data. The source outage is reported itself: `RPC DOWN` (critical), `METRICS DOWN`, and
-`BFT LOG SILENT` (the bft journal fed monadar and stopped: journalctl died, no journal access, or
-bft no longer logs at DEBUG). Rules with their own data keep working: `STUCK` still fires while
+missing data. The source outage is reported itself: `RPC DOWN` (critical), `METRICS DOWN`,
+`BFT LOG SILENT` and `LEDGER TAIL SILENT` (a journal fed monadar and stopped: the service or
+journalctl died, or journal access was lost). Rules with their own data keep working: `STUCK` still fires while
 only the metrics endpoint is down. journalctl errors (missing permissions, for example) are
 printed to the daemon's stderr.
 

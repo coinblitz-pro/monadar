@@ -17,6 +17,7 @@ mod history_render;
 mod http;
 mod install;
 mod journal;
+mod ledger_log;
 mod log;
 mod metric_snapshot;
 mod metrics;

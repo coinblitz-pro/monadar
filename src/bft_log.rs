@@ -1,12 +1,13 @@
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use regex::Regex;
 use serde_json::Value;
 
 use crate::journal::follow_journal;
-use crate::types::{MissedRound, NetWindow, RoundAgg, RoundSummary};
+use crate::ledger_log::LedgerEvent;
+use crate::types::{Latency, MissedRound, NetWindow, RoundAgg, RoundSummary};
 
 // Leader-round accounting from monad-bft's DEBUG journal. Every round logs:
 //   "leader for round"  {round, round_leader: "Some(<secp key>)"}  — who should propose
@@ -26,6 +27,12 @@ use crate::types::{MissedRound, NetWindow, RoundAgg, RoundSummary};
 // A local timeout on a round that got no TC means the network finished the
 // round normally and only we were late — that's our problem (network/CPU).
 // A local timeout on a TC round is just the leader's miss.
+//
+// monad-ledger-tail (ledger_log.rs) carries the same round data at INFO level:
+// proposals with their author, timeouts with the round's leader, finalized
+// blocks. While it is live it is the source of proposals, TCs and commits, and
+// the bft journal adds only what ledger-tail lacks (leader schedule for unseen
+// rounds, our local timeouts, forwarded txs, our key), all of it DEBUG-only.
 
 const FINAL_LAG: i64 = 10;
 const MINUTE: i64 = 60_000;
@@ -33,6 +40,10 @@ const DAY_MINUTES: i64 = 24 * 60;
 const MISSED_ALERT_MINUTES: i64 = 10;
 const MAX_OUR_SEQS: usize = 1000;
 const SIZE_NEIGHBOURS: usize = 50;
+// A source counts as live while its last line is this recent.
+const LIVE_MS: i64 = 30_000;
+const DEBUG_LIVE_MS: i64 = 60_000;
+const LATENCY_WINDOW_MS: i64 = MISSED_ALERT_MINUTES * MINUTE;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum BftEvent {
@@ -155,6 +166,32 @@ fn median(xs: &VecDeque<f64>) -> f64 {
     if s.len() % 2 == 1 { s[m] } else { (s[m - 1] + s[m]) / 2.0 }
 }
 
+fn percentile(sorted: &[i64], p: f64) -> i64 {
+    sorted[((sorted.len() as f64 * p) as usize).min(sorted.len() - 1)]
+}
+
+// Delays observed in the last LATENCY_WINDOW_MS.
+#[derive(Default)]
+struct DelayWindow(VecDeque<(i64, i64)>);
+
+impl DelayWindow {
+    fn push(&mut self, t: i64, ms: i64) {
+        self.0.push_back((t, ms));
+        while self.0.front().is_some_and(|(at, _)| *at < t - LATENCY_WINDOW_MS) {
+            self.0.pop_front();
+        }
+    }
+
+    fn latency(&self, now_ms: i64) -> Option<Latency> {
+        let mut v: Vec<i64> = self.0.iter().filter(|(t, _)| *t >= now_ms - LATENCY_WINDOW_MS).map(|(_, ms)| *ms).collect();
+        if v.is_empty() {
+            return None;
+        }
+        v.sort_unstable();
+        Some(Latency { p50: percentile(&v, 0.5), p99: percentile(&v, 0.99) })
+    }
+}
+
 // Our block size relative to the network: 1 = same as neighbouring blocks.
 pub fn size_ratio(a: &RoundAgg) -> Option<f64> {
     (a.size_samples > 0 && a.size_peer_txs > 0.0).then(|| a.size_our_txs / a.size_peer_txs)
@@ -169,14 +206,24 @@ pub struct RoundTracker {
     self_from_journal: bool,
     // Wall-clock time of the last journal line of any kind (not just parsed ones).
     last_line_ms: Option<i64>,
+    // Wall-clock time of the last ledger-tail line.
+    last_ledger_line_ms: Option<i64>,
     pending: BTreeMap<i64, RoundInfo>,
     buckets: BTreeMap<i64, RoundAgg>, // minute index → counters
-    our_seqs: BTreeSet<i64>,
+    our_seqs: BTreeMap<i64, u64>,     // our proposed block → its tx count
     max_round: i64,
     last_missed: Option<MissedRound>,
-    last_event_t: Option<i64>,
+    // Event time of the last round-level event from either source.
+    last_round_t: Option<i64>,
+    last_ledger_t: Option<i64>,
+    last_debug_t: Option<i64>,
     last_proposal_author: Option<String>,
-    peer_sizes: VecDeque<f64>, // txs of the last SIZE_NEIGHBOURS network blocks (not ours)
+    // Sizes of the last SIZE_NEIGHBOURS network blocks (not ours), in gas when
+    // size_in_gas, else in txs.
+    peer_sizes: VecDeque<f64>,
+    size_in_gas: bool,
+    proposal_delays: DelayWindow,
+    finality: DelayWindow,
     // Runs of consecutive TC rounds (≥2): several leaders in a row produced no
     // block, so the whole network stood still for seconds.
     last_final: i64,
@@ -229,9 +276,21 @@ impl RoundTracker {
         self.last_line_ms = Some(now_ms);
     }
 
-    // How long the journal has been quiet; None if it never produced a line.
+    // How long the bft journal has been quiet; None if it never produced a line.
     pub fn silent_ms(&self, now_ms: i64) -> Option<i64> {
         self.last_line_ms.map(|t| now_ms - t)
+    }
+
+    pub fn note_ledger_line(&mut self, now_ms: i64) {
+        self.last_ledger_line_ms = Some(now_ms);
+    }
+
+    pub fn ledger_silent_ms(&self, now_ms: i64) -> Option<i64> {
+        self.last_ledger_line_ms.map(|t| now_ms - t)
+    }
+
+    fn ledger_live(&self, t: i64) -> bool {
+        self.last_ledger_t.is_some_and(|l| t - l < LIVE_MS)
     }
 
     fn is_self(&self, key: Option<&str>) -> bool {
@@ -296,70 +355,128 @@ impl RoundTracker {
         }
     }
 
-    fn block_size(&mut self, txs: u64, t: i64) {
-        let Some(author) = self.last_proposal_author.take() else { return };
-        if self.is_self(Some(&author)) {
+    fn block_size(&mut self, author: &str, size: f64, in_gas: bool, t: i64) {
+        if in_gas != self.size_in_gas {
+            self.size_in_gas = in_gas;
+            self.peer_sizes.clear();
+        }
+        if self.is_self(Some(author)) {
             if self.peer_sizes.len() < SIZE_NEIGHBOURS / 2 {
                 return; // not enough context yet
             }
             let peer = median(&self.peer_sizes);
             let b = self.bucket(t);
-            b.size_our_txs += txs as f64;
+            b.size_our_txs += size;
             b.size_peer_txs += peer;
             b.size_samples += 1;
         } else {
-            self.peer_sizes.push_back(txs as f64);
+            self.peer_sizes.push_back(size);
             if self.peer_sizes.len() > SIZE_NEIGHBOURS {
                 self.peer_sizes.pop_front();
             }
         }
     }
 
+    fn proposal(&mut self, round: i64, author: String, seq: Option<i64>, txs: u64, t: i64) {
+        // Remember our block numbers now: the commit arrives a few rounds later,
+        // well before the round is finalized.
+        if let Some(seq) = seq.filter(|_| self.is_self(Some(&author))) {
+            self.our_seqs.insert(seq, txs);
+            if self.our_seqs.len() > MAX_OUR_SEQS {
+                self.our_seqs.pop_first();
+            }
+        }
+        self.info(round, t).author = Some(author);
+    }
+
+    fn commit(&mut self, block: i64, txs: Option<u64>, t: i64) {
+        if let Some(proposed_txs) = self.our_seqs.remove(&block) {
+            let b = self.bucket(t);
+            b.committed += 1;
+            b.txs += txs.unwrap_or(proposed_txs);
+        }
+    }
+
     pub fn ingest(&mut self, e: BftEvent) {
         let t = e.t();
-        self.last_event_t = Some(t);
+        // Proposals, TCs, commits and block sizes come from ledger-tail while it is live.
+        let ledger = self.ledger_live(t);
         let round = match e {
-            BftEvent::Stats { txs, t } => return self.block_size(txs, t),
+            BftEvent::Stats { txs, t } => {
+                if let Some(author) = self.last_proposal_author.take().filter(|_| !ledger) {
+                    self.block_size(&author, txs as f64, false, t);
+                }
+                return;
+            }
             BftEvent::Fwd { txs, t } => {
                 self.bucket(t).fwd_txs += txs;
                 return;
             }
             BftEvent::SelfKey { key, .. } => return self.learn_self(&key),
             BftEvent::Commit { block, txs, t } => {
-                if self.our_seqs.remove(&block) {
-                    let b = self.bucket(t);
-                    b.committed += 1;
-                    b.txs += txs;
+                if !ledger {
+                    self.commit(block, Some(txs), t);
                 }
                 return;
             }
             BftEvent::Leader { round, leader, t } => {
+                self.last_debug_t = Some(t);
                 self.info(round, t).leader = leader;
                 round
             }
             BftEvent::Proposal { round, author, seq, t } => {
-                // Remember our block numbers now: "committed block" arrives a few rounds
-                // later, well before the round is finalized.
-                if let Some(seq) = seq.filter(|_| self.is_self(Some(&author))) {
-                    self.our_seqs.insert(seq);
-                    if self.our_seqs.len() > MAX_OUR_SEQS {
-                        self.our_seqs.pop_first();
-                    }
+                self.last_debug_t = Some(t);
+                if ledger {
+                    return;
                 }
                 self.last_proposal_author = Some(author.clone());
-                self.info(round, t).author = Some(author);
+                self.proposal(round, author, seq, 0, t);
                 round
             }
             BftEvent::LocalTmo { round, t } => {
+                self.last_debug_t = Some(t);
                 self.info(round, t).local_tmo = true;
                 round
             }
             BftEvent::Tc { round, t } => {
+                self.last_debug_t = Some(t);
+                if ledger {
+                    return;
+                }
                 self.info(round, t).tc = true;
                 round
             }
         };
+        self.advance(round, t);
+    }
 
+    pub fn ingest_ledger(&mut self, e: LedgerEvent) {
+        let t = e.t();
+        self.last_ledger_t = Some(t);
+        let round = match e {
+            LedgerEvent::Proposed { round, author, seq, txs, gas, block_ts, .. } => {
+                self.proposal_delays.push(t, t - block_ts);
+                self.block_size(&author, gas as f64, true, t);
+                self.proposal(round, author, Some(seq), txs, t);
+                round
+            }
+            LedgerEvent::Finalized { seq, block_ts, .. } => {
+                self.finality.push(t, t - block_ts);
+                return self.commit(seq, None, t);
+            }
+            // Logged for a round that ended by TC, with that round's leader.
+            LedgerEvent::Timeout { round, leader, .. } => {
+                let info = self.info(round, t);
+                info.leader = Some(leader);
+                info.tc = true;
+                round
+            }
+        };
+        self.advance(round, t);
+    }
+
+    fn advance(&mut self, round: i64, t: i64) {
+        self.last_round_t = Some(t);
         if round > self.max_round {
             self.max_round = round;
             // Finalize in round order so consecutive-TC runs are detected correctly.
@@ -381,9 +498,10 @@ impl RoundTracker {
         a
     }
 
-    // None until the first bft line arrives (DEBUG logging off, or no journal access).
+    // None until the first round-level event arrives: no ledger-tail and bft not
+    // at DEBUG, or no journal access.
     pub fn summary(&self, now_ms: i64) -> Option<RoundSummary> {
-        self.last_event_t?;
+        self.last_round_t?;
         let now = now_ms.div_euclid(MINUTE);
         let last10 = self.sum(now - MISSED_ALERT_MINUTES + 1, now);
         let prev_minute = self.sum(now - 1, now - 1);
@@ -396,6 +514,9 @@ impl RoundTracker {
             net10m: NetWindow { rounds: last10.net_rounds, tc: last10.net_missed, max_tc_run },
             last_missed: self.last_missed,
             rounds_per_sec: prev_minute.net_rounds as f64 / 60.0,
+            bft_debug: self.last_debug_t.is_some_and(|t| now_ms - t < DEBUG_LIVE_MS),
+            proposal_delay: self.proposal_delays.latency(now_ms),
+            finality: self.finality.latency(now_ms),
         })
     }
 }
@@ -416,6 +537,7 @@ pub fn start_bft_log_tail() -> Arc<Mutex<RoundTracker>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ledger_log::LedgerEvent;
     use serde_json::json;
 
     const ME: &str = "035c51a98dbf03fe411cb723aa89d2e5ec764ece056cf08bc76de2bea2107e6d4d";
@@ -691,5 +813,53 @@ mod tests {
         tr.ingest(leader(1, OTHER, t));
         tr.ingest(leader(20, ME, t));
         assert_eq!(tr.summary(t).unwrap().h24.led, 1);
+    }
+
+    fn proposed(round: i64, author: &str, seq: i64, t: i64) -> LedgerEvent {
+        LedgerEvent::Proposed { round, author: author.into(), seq, txs: 10, gas: 1000, block_ts: t - 30, t }
+    }
+
+    #[test]
+    fn ledger_tail_alone_classifies_our_rounds() {
+        let t = t0();
+        let mut tr = RoundTracker::new();
+        tr.configure_self(Some(ME));
+        for r in 1..=40 {
+            tr.ingest_ledger(proposed(r, OTHER, 100 + r, t));
+        }
+        tr.ingest_ledger(proposed(41, ME, 141, t)); // ok
+        tr.ingest_ledger(LedgerEvent::Finalized { seq: 141, block_ts: t - 600, t });
+        tr.ingest_ledger(proposed(42, ME, 142, t)); // proposed, then the round timed out: failed
+        tr.ingest_ledger(LedgerEvent::Timeout { round: 42, leader: ME.into(), t });
+        tr.ingest_ledger(LedgerEvent::Timeout { round: 43, leader: ME.into(), t }); // missed
+        for r in 44..=60 {
+            tr.ingest_ledger(proposed(r, OTHER, 100 + r, t));
+        }
+        let s = tr.summary(t).unwrap();
+        assert_eq!((s.h24.led, s.h24.ok, s.h24.failed, s.h24.missed), (3, 1, 1, 1));
+        assert_eq!((s.h24.committed, s.h24.txs), (1, 10));
+        assert_eq!(s.h24.net_missed, 2);
+        assert_eq!(s.proposal_delay, Some(Latency { p50: 30, p99: 30 }));
+        assert_eq!(s.finality, Some(Latency { p50: 600, p99: 600 }));
+        assert!(!s.bft_debug, "no DEBUG lines: late and unseen are unknown");
+    }
+
+    #[test]
+    fn bft_round_events_step_aside_while_ledger_tail_is_live() {
+        let t = t0();
+        let mut tr = RoundTracker::new();
+        tr.configure_self(Some(ME));
+        tr.ingest_ledger(proposed(1, ME, 101, t));
+        // The same proposal and commit from the bft journal must not count twice.
+        tr.ingest(proposal(1, ME, 101, t));
+        tr.ingest(BftEvent::Commit { block: 101, txs: 10, t });
+        tr.ingest(BftEvent::LocalTmo { round: 1, t });
+        tr.ingest_ledger(LedgerEvent::Finalized { seq: 101, block_ts: t, t });
+        for r in 2..=20 {
+            tr.ingest_ledger(proposed(r, OTHER, 100 + r, t));
+        }
+        let s = tr.summary(t).unwrap();
+        assert_eq!((s.h24.led, s.h24.ok, s.h24.committed, s.h24.txs), (1, 1, 1, 10));
+        assert!(s.bft_debug);
     }
 }

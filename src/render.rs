@@ -5,7 +5,7 @@ use crate::events::load_events;
 use crate::format::{js_round, num, opt_num, render_table};
 use crate::history_render::{event_icon, render_history};
 use crate::log::{get_recent, recent_count};
-use crate::types::{Cell, CounterCell, Frame, FrameError, RoundAgg, Status};
+use crate::types::{Cell, CounterCell, Frame, FrameError, Latency, RoundAgg, Status};
 use crate::ui::{Overlay, Ui, terminal_size, write_out};
 
 const EOL: &str = "\x1b[K";
@@ -165,12 +165,17 @@ pub fn frame_body(f: &Frame) -> String {
         } else {
             lost
         };
-        let late_str = format!("late {}", d.late_tmo);
-        let unseen_val = format!(
-            "{} {}",
-            if d.not_received > 0 { yellow(&d.not_received.to_string()) } else { "0".into() },
-            if r.late_tmo10m > 0 { yellow(&late_str) } else { dim(&late_str) }
-        );
+        // Unseen rounds and late timeouts are known only while bft logs at DEBUG.
+        let unseen_val = if r.bft_debug {
+            let late_str = format!("late {}", d.late_tmo);
+            format!(
+                "{} {}",
+                if d.not_received > 0 { yellow(&d.not_received.to_string()) } else { "0".into() },
+                if r.late_tmo10m > 0 { yellow(&late_str) } else { dim(&late_str) }
+            )
+        } else {
+            format!("? {}", dim("late ?"))
+        };
         let net_pct_str = if d.net_rounds > 0 { format!("{:.2}%", d.net_missed as f64 / d.net_rounds as f64 * 100.0) } else { "?".into() };
         let net_pct = if f.warnings.iter().any(|w| w.key == "NET_DEGRADED") { yellow(&net_pct_str) } else { net_pct_str };
         rows.push(vec![
@@ -181,6 +186,11 @@ pub fn frame_body(f: &Frame) -> String {
             cell("txs:", txs_vs_net(d)),
             cell("net_tc:", format!("{net_pct} {}", dim(&format!("{:.2} r/s", r.rounds_per_sec)))),
         ]);
+        // From ledger-tail: how late proposals reach us, and time to finality (p50/p99, 10 min).
+        if r.proposal_delay.is_some() || r.finality.is_some() {
+            let lat = |l: Option<Latency>| l.map(|l| format!("{}/{}ms", l.p50, l.p99)).unwrap_or("?".into());
+            rows.push(vec![cell("delay:", lat(r.proposal_delay)), cell("final:", lat(r.finality))]);
+        }
     }
 
     let status = match f.status {

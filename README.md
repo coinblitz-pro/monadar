@@ -42,7 +42,8 @@ Recent events:
   them (no OpenTelemetry Collector needed), or a Prometheus endpoint at
   `http://localhost:8889/metrics`
 - Journal access (root or the `systemd-journal` group) for execution latency and leader rounds;
-  rounds need monad-bft logging at DEBUG
+  rounds come from `monad-ledger-tail` (enable it: `systemctl enable --now monad-ledger-tail`)
+  or from monad-bft logging at DEBUG
 
 ## Install
 

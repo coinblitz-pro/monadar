@@ -100,8 +100,10 @@ pub struct WarnInput<'a> {
     pub lag: Option<i64>,
     pub exec_p99: Option<i64>,
     pub rounds: Option<&'a RoundSummary>,
-    // Time since the last monad-bft journal line; None if none was ever seen.
+    // Time since the last monad-bft / monad-ledger-tail journal line; None if
+    // none was ever seen.
     pub bft_silent_ms: Option<i64>,
+    pub ledger_silent_ms: Option<i64>,
 }
 
 fn warning(level: Level, key: &'static str, short: String, detail: String) -> Check {
@@ -185,7 +187,8 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
             format!("Our node was leader and its block did not make it in {n} round(s) during the last 10 min (round ended by timeout certificate)"),
         )
     }));
-    w.push(rule("LATE", r.map(|r| r.late_tmo10m as f64), |n| n > 0.0, |n| {
+    // Our local timeouts are logged only at DEBUG.
+    w.push(rule("LATE", r.filter(|r| r.bft_debug).map(|r| r.late_tmo10m as f64), |n| n > 0.0, |n| {
         warning(
             Level::Warn,
             "LATE",
@@ -297,13 +300,27 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
 
     // The bft journal fed us before and went quiet: round tracking is blind.
     let silent = if i.rpc.is_some() { Some(i.bft_silent_ms.unwrap_or(0) as f64) } else { None };
-    w.push(rule("BFT_LOG_SILENT", silent, |ms| ms > BFT_SILENT_MS as f64, |ms| {
+    w.push(rule(
+        "BFT_LOG_SILENT",
+        silent,
+        |ms| ms > BFT_SILENT_MS as f64,
+        |ms| {
+            warning(
+                Level::Warn,
+                "BFT_LOG_SILENT",
+                "BFT LOG SILENT".into(),
+                format!("No monad-bft journal lines for {}: journalctl stopped or lost journal access", fmt_duration(ms as i64)),
+            )
+        },
+    ));
+    let silent = if i.rpc.is_some() { Some(i.ledger_silent_ms.unwrap_or(0) as f64) } else { None };
+    w.push(rule("LEDGER_TAIL_SILENT", silent, |ms| ms > BFT_SILENT_MS as f64, |ms| {
         warning(
             Level::Warn,
-            "BFT_LOG_SILENT",
-            "BFT LOG SILENT".into(),
+            "LEDGER_TAIL_SILENT",
+            "LEDGER TAIL SILENT".into(),
             format!(
-                "No monad-bft journal lines for {}: round tracking is blind (journalctl stopped, no journal access, or bft no longer logs at DEBUG)",
+                "No monad-ledger-tail journal lines for {}: the service stopped, or journalctl did. Rounds now come from the bft journal if it logs at DEBUG",
                 fmt_duration(ms as i64)
             ),
         )
@@ -600,7 +617,7 @@ mod tests {
     }
 
     fn input<'a>(rpc: Option<RpcObs>, metrics: MetricsState) -> WarnInput<'a> {
-        WarnInput { rpc, metrics, lag: None, exec_p99: None, rounds: None, bft_silent_ms: None }
+        WarnInput { rpc, metrics, lag: None, exec_p99: None, rounds: None, bft_silent_ms: None, ledger_silent_ms: None }
     }
 
     fn state<'a>(checks: &'a [Check], key: &str) -> &'a Check {
@@ -612,7 +629,7 @@ mod tests {
         let t = crate::config::DEFAULT_THRESHOLDS;
         let down = check_warnings(&input(None, MetricsState::Pending), &t);
         assert!(matches!(state(&down, "RPC_DOWN"), Check::Firing(_)));
-        for key in ["METRICS_DOWN", "STUCK", "LOW_PEERS", "SLOW_RPC", "EXEC_SLOW", "MISSED_ROUND", "BFT_LOG_SILENT"] {
+        for key in ["METRICS_DOWN", "STUCK", "LOW_PEERS", "SLOW_RPC", "EXEC_SLOW", "MISSED_ROUND", "BFT_LOG_SILENT", "LEDGER_TAIL_SILENT"] {
             assert_eq!(state(&down, key), &Check::Unknown(key), "{key} while RPC is down");
         }
 

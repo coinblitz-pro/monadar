@@ -318,13 +318,14 @@ Separate service parsing ledger artifacts. JSON logs via journalctl:
 journalctl -fu monad-ledger-tail
 ```
 
-Two event types:
+Three event types, all at INFO. monadar uses them for leader rounds (see [rounds.md](rounds.md)):
 
 **`proposed_block`**: block proposed by consensus leader:
 ```json
 {"message":"proposed_block", "round":"59510580", "parent_round":"59510579",
- "epoch":"1189", "seq_num":"59426425", "num_tx":"5",
- "author":"02ae...", "block_ts_ms":"1772715239361", "now_ts_ms":"1772715239421"}
+ "epoch":"1189", "seq_num":"59426425", "num_tx":"5", "gas_used":"12474726",
+ "author":"02ae...", "block_ts_ms":"1772715239361", "now_ts_ms":"1772715239421",
+ "author_address":"64.130.43.22:8000"}
 ```
 
 **`finalized_block`**: block finalized (2 rounds after proposal):
@@ -334,8 +335,16 @@ Two event types:
  "block_ts_ms":"1772715238920", "now_ts_ms":"1772715239756"}
 ```
 
+**`timeout`**: a round that ended by timeout certificate; `author` is that round's leader (it
+matched bft's `leader for round` for every TC in a 2-hour capture):
+```json
+{"message":"timeout", "round":"115808579", "author":"03bdde...", "now_ts_ms":"1792691817255",
+ "author_address":"149.50.110.144:8000"}
+```
+
 Key derivable metrics:
-- **Finalization latency**: `now_ts_ms - block_ts_ms` (typically 400-800ms)
+- **Proposal delay**: `now_ts_ms - block_ts_ms` of `proposed_block` (p50 ~30 ms, p99 ~185 ms on mainnet, Oct 2026)
+- **Finalization latency**: `now_ts_ms - block_ts_ms` of `finalized_block` (p50 ~620 ms, p99 ~770 ms)
 - **Block time**: delta between consecutive `finalized_block` timestamps
 - **Consensus gap**: `round - seq_num` (stable value = historical timeout rounds, growth = new timeouts)
 
@@ -371,8 +380,8 @@ Returns actual peer info (alternative to `monad_peer_disc_num_peers` metric).
 journalctl -u monad-bft -f
 ```
 
-Key parseable messages (JSON via journald). monadar uses the first eight; most are DEBUG, so
-leader-round data needs bft at DEBUG (see [rounds.md](rounds.md)):
+Key parseable messages (JSON via journald). monadar uses the first eight; most are DEBUG. With
+monad-ledger-tail running, bft can stay at INFO (see [rounds.md](rounds.md)):
 - `"leader for round"`: `round`, `round_leader: "Some(<secp key>)"`
 - `"proposal message"`: `author`, `proposal` (text with `proposal_round` and `seq_num`)
 - `"advancing round"`: `certificate`: `Qc(...)` or `Tc(TimeoutCertificate { epoch, round, ...`
@@ -463,4 +472,5 @@ Expected bandwidth at 10k TPS: ~6 MB/s (3 MB block data × 2x redundancy)
 | prop | `monad_state_consensus_events_creating_proposal` | Delta shown |
 | leader | `creating_proposal / handle_proposal` | Our share of proposals |
 | voted | `created_vote / handle_proposal` | |
-| rounds row | bft journal | See [rounds.md](rounds.md) |
+| rounds row | ledger-tail, bft journal | See [rounds.md](rounds.md) |
+| delay, final | ledger-tail | Proposal delay and time to finality, p50/p99 over 10 min |

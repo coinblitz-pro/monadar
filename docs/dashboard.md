@@ -23,7 +23,10 @@ Cells turn yellow on a warning threshold and red on a critical condition.
   or blocks behind consensus without it), `lag_evt`
 - **Row 3**: `exec` (executed block, diff to `block`), `tx`, `txpool`, `fwd`, `p99`, `rpc`
 - **Row 4**: `key`, `net`, `stake`, `prop`, `leader` (prop/handled), `voted` (votes/handled)
-- **Row 5**: our leader rounds and network TCs (see [rounds.md](rounds.md)), when bft logs at DEBUG
+- **Row 5**: our leader rounds and network TCs (see [rounds.md](rounds.md)), from ledger-tail or
+  bft at DEBUG
+- **Row 6**: `delay` (how late proposals reach us) and `final` (time to finality), p50/p99, from
+  ledger-tail
 
 Below: the status line and the last five events.
 

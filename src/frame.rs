@@ -56,6 +56,7 @@ pub struct TickInput<'a> {
     pub rounds: Option<RoundSummary>,
     pub stalled_ms: i64,
     pub bft_silent_ms: Option<i64>,
+    pub ledger_silent_ms: Option<i64>,
     pub now_ms: i64,
 }
 
@@ -183,6 +184,10 @@ fn log_line(i: LogInput) -> String {
             format!("fwd24={}", d.fwd_txs),
         ]);
     }
+    if let Some(r) = i.rounds {
+        let lat = |l: Option<crate::types::Latency>| l.map(|l| format!("{}/{}ms", l.p50, l.p99)).unwrap_or("?".into());
+        parts.extend([format!("prop_delay={}", lat(r.proposal_delay)), format!("finality={}", lat(r.finality))]);
+    }
     parts.extend([
         format!("txpool={}", opt_num(m.txpool)),
         format!("fwd={}", opt_num(m.fwd)),
@@ -249,6 +254,7 @@ pub fn build_tick_frame(state: &mut CollectorState, input: TickInput) -> BuiltFr
             exec_p99: exec.map(|e| e.p99),
             rounds: rounds.as_ref(),
             bft_silent_ms: input.bft_silent_ms,
+            ledger_silent_ms: input.ledger_silent_ms,
         },
         input.thresholds,
     );
@@ -452,6 +458,7 @@ mod tests {
                 rounds,
                 stalled_ms: s.stalled_ms,
                 bft_silent_ms: None,
+                ledger_silent_ms: None,
                 now_ms,
             },
         )
@@ -462,7 +469,18 @@ mod tests {
     }
 
     fn summary(a: RoundAgg, missed10m: u64, late_tmo10m: u64, net10m: NetWindow, last_missed: Option<MissedRound>) -> RoundSummary {
-        RoundSummary { h1: a, h24: a, missed10m, late_tmo10m, net10m, last_missed, rounds_per_sec: 2.5 }
+        RoundSummary {
+            h1: a,
+            h24: a,
+            missed10m,
+            late_tmo10m,
+            net10m,
+            last_missed,
+            rounds_per_sec: 2.5,
+            bft_debug: true,
+            proposal_delay: None,
+            finality: None,
+        }
     }
 
     fn net_agg(net_rounds: u64, net_missed: u64) -> RoundAgg {
