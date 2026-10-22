@@ -53,7 +53,7 @@ Recent events:
 Download a release binary, check it, and install it with its config next to it:
 
 ```sh
-V=v1.1.0
+V=v1.1.1
 curl -fLO https://github.com/coinblitz-pro/monadar/releases/download/$V/monadar-$V-x86_64-linux-musl
 curl -fLO https://github.com/coinblitz-pro/monadar/releases/download/$V/SHA256SUMS
 sha256sum -c SHA256SUMS
