@@ -39,7 +39,7 @@ anyone can check that a release binary was built from the tagged source:
 
 ```sh
 sha256sum -c SHA256SUMS                         # the download is intact
-git checkout v1.0.0 && ./scripts/build-musl.sh  # prints the same sha256 as SHA256SUMS
+git checkout v1.0.1 && ./scripts/build-musl.sh  # prints the same sha256 as SHA256SUMS
 ```
 
 The workflow also signs a build provenance attestation: a statement from GitHub that this file
