@@ -1,0 +1,28 @@
+[package]
+name = "monadar"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.88"
+build = "build.rs"
+
+[profile.release]
+strip = true
+lto = true
+
+[dependencies]
+bytes = "1.12.1"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+flate2 = "1.1.10"
+http-body-util = "0.1.5"
+hyper = { version = "1.12.0", features = ["server", "http2", "http1", "client"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+indexmap = "2.14.2"
+libc = "0.2.191"
+regex = "1.13.1"
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+socket2 = "0.6.5"
+tokio = { version = "1.54.1", features = ["rt", "macros", "net", "time", "process", "signal", "io-util", "sync"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
+webpki-roots = "1.0.10"
