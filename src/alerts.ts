@@ -17,7 +17,7 @@ function fmtDuration(ms: number): string {
 }
 
 export function checkWarnings(
-  blockDelta: number | null,
+  blockDelta: number | null, stalledMs: number | null,
   dv: number | null, dt: number | null, dtc: number | null,
   syncing: number | null, lagging: number, execP99: number | null,
   rounds: { missed10m: number; lateTmo10m: number } | null,
@@ -30,8 +30,10 @@ export function checkWarnings(
   if (syncing === 1)
     w.push({ level: 'crit', key: 'SYNCING', short: 'SYNCING', detail: 'Node is state-syncing, not fully caught up with the network' })
 
-  if (blockDelta !== null && blockDelta === 0)
-    w.push({ level: 'crit', key: 'STUCK', short: 'STUCK', detail: 'Block number is not advancing — node may be stuck or disconnected' })
+  // Time-based: a timed-out round alone pauses blocks for ~1-1.5s.
+  const stuck = stalledMs !== null ? stalledMs >= thresholds.stuck_sec * 1000 : blockDelta === 0
+  if (stuck)
+    w.push({ level: 'crit', key: 'STUCK', short: 'STUCK', detail: `Block number has not advanced for ${stalledMs !== null ? Math.round(stalledMs / 1000) + 's' : 'a tick'} — node may be stuck or disconnected` })
 
   if (dv !== null && dv === 0 && blockDelta !== null && blockDelta > 0)
     w.push({ level: 'crit', key: 'NOT_VOTING', short: 'NOT VOTING', detail: 'Node is not creating votes while blocks advance — consensus participation lost' })

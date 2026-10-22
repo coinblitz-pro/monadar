@@ -7,6 +7,8 @@ import type { RoundAgg, RoundSummary } from './types'
 //   "advancing round"   {certificate: "Qc(QC { info: Vote { .. round: R }" | "Tc(TimeoutCertificate { epoch: E, round: R"}
 //   "committed block"   {block_num, num_tx}
 //   "local timeout"     {round, leader}  — our pacemaker gave up on the round
+//   "proposal stats"    {txs, total_gas} — follows the "proposal message" it describes
+//   "txpool executor received forwarded txs" {sender, num_txs}
 // The round right after a TC has no "leader for round" line; its proposal's
 // author is the leader. A round is classified once the chain is FINAL_LAG
 // rounds past it, so its TC (logged when entering R+1) has surely arrived:
@@ -21,6 +23,7 @@ const MINUTE = 60_000
 const DAY_MINUTES = 24 * 60
 const MISSED_ALERT_MINUTES = 10
 const MAX_OUR_SEQS = 1000
+const SIZE_NEIGHBOURS = 50
 
 export type BftEvent =
   | { kind: 'leader'; round: number; leader: string | null; t: number }
@@ -28,8 +31,13 @@ export type BftEvent =
   | { kind: 'tc'; round: number; t: number }
   | { kind: 'local_tmo'; round: number; t: number }
   | { kind: 'commit'; block: number; txs: number; t: number }
+  | { kind: 'stats'; txs: number; t: number }
+  | { kind: 'fwd'; txs: number; t: number }
 
-const MARKERS = [ '"leader for round"', '"proposal message"', '"advancing round"', '"committed block"', '"local timeout"' ]
+const MARKERS = [
+  '"leader for round"', '"proposal message"', '"advancing round"', '"committed block"', '"local timeout"',
+  '"proposal stats"', '"txpool executor received forwarded txs"',
+]
 
 export function parseBftLine(line: string): BftEvent | null {
   // Cheap substring check first: the journal carries ~100 lines/s, most irrelevant.
@@ -64,6 +72,10 @@ export function parseBftLine(line: string): BftEvent | null {
       return { kind: 'commit', block: Number(f.block_num), txs: Number(f.num_tx) || 0, t }
     case 'local timeout':
       return { kind: 'local_tmo', round: Number(f.round), t }
+    case 'proposal stats':
+      return { kind: 'stats', txs: Number(f.txs) || 0, t }
+    case 'txpool executor received forwarded txs':
+      return { kind: 'fwd', txs: Number(f.num_txs) || 0, t }
   }
   return null
 }
@@ -71,7 +83,21 @@ export function parseBftLine(line: string): BftEvent | null {
 type RoundInfo = { leader: string | null; author: string | null; seq: number | null; tc: boolean; localTmo: boolean; t: number }
 
 export function emptyAgg(): RoundAgg {
-  return { led: 0, ok: 0, missed: 0, failed: 0, notReceived: 0, committed: 0, txs: 0, netRounds: 0, netMissed: 0, lateTmo: 0 }
+  return {
+    led: 0, ok: 0, missed: 0, failed: 0, notReceived: 0, committed: 0, txs: 0, netRounds: 0, netMissed: 0, lateTmo: 0,
+    sizeOurTxs: 0, sizePeerTxs: 0, sizeSamples: 0, fwdTxs: 0,
+  }
+}
+
+function median(xs: number[]): number {
+  const s = [ ...xs ].sort((a, b) => a - b)
+  const m = s.length >> 1
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
+// Our block size relative to the network: 1 = same as neighbouring blocks.
+export function sizeRatio(a: RoundAgg): number | null {
+  return a.sizeSamples > 0 && a.sizePeerTxs > 0 ? a.sizeOurTxs / a.sizePeerTxs : null
 }
 
 function addAgg(into: RoundAgg, a: RoundAgg) {
@@ -86,6 +112,8 @@ export function createRoundTracker() {
   let maxRound = 0
   let lastMissed: { round: number; t: number } | null = null
   let lastEventT: number | null = null
+  let lastProposalAuthor: string | null = null
+  const peerSizes: number[] = [] // txs of the last SIZE_NEIGHBOURS network blocks (not ours)
 
   function bucket(t: number): RoundAgg {
     const m = Math.floor(t / MINUTE)
@@ -129,8 +157,29 @@ export function createRoundTracker() {
     if (r.tc) lastMissed = { round, t: r.t }
   }
 
+  function blockSize(txs: number, t: number) {
+    const author = lastProposalAuthor
+    lastProposalAuthor = null
+    if (author === null) return
+    if (self && author === self) {
+      if (peerSizes.length < SIZE_NEIGHBOURS / 2) return // not enough context yet
+      const b = bucket(t)
+      b.sizeOurTxs += txs
+      b.sizePeerTxs += median(peerSizes)
+      b.sizeSamples++
+    } else {
+      peerSizes.push(txs)
+      if (peerSizes.length > SIZE_NEIGHBOURS) peerSizes.shift()
+    }
+  }
+
   function ingest(e: BftEvent) {
     lastEventT = e.t
+    if (e.kind === 'stats') return blockSize(e.txs, e.t)
+    if (e.kind === 'fwd') {
+      bucket(e.t).fwdTxs += e.txs
+      return
+    }
     if (e.kind === 'commit') {
       if (ourSeqs.delete(e.block)) {
         const b = bucket(e.t)
@@ -145,6 +194,7 @@ export function createRoundTracker() {
     else if (e.kind === 'proposal') {
       r.author = e.author
       r.seq = e.seq
+      lastProposalAuthor = e.author
       // Remember our block numbers now: "committed block" arrives a few rounds
       // later, well before the round is finalized.
       if (self && e.author === self && e.seq !== null) {

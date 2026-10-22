@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createRoundTracker, parseBftLine, type BftEvent } from './bft_log'
+import { createRoundTracker, parseBftLine, sizeRatio, type BftEvent } from './bft_log'
 
 const ME = '035c51a98dbf03fe411cb723aa89d2e5ec764ece056cf08bc76de2bea2107e6d4d'
 const OTHER = '02fbe48c47aa'
@@ -86,7 +86,7 @@ test('round tracker classifies our rounds and counts our committed blocks', () =
 
   const s = tr.summary(t)
   assert.ok(s)
-  assert.deepEqual(s.h24, { led: 4, ok: 1, missed: 1, failed: 1, notReceived: 1, committed: 1, txs: 7, netRounds: 6, netMissed: 3, lateTmo: 0 })
+  assert.deepEqual(s.h24, { led: 4, ok: 1, missed: 1, failed: 1, notReceived: 1, committed: 1, txs: 7, netRounds: 6, netMissed: 3, lateTmo: 0, sizeOurTxs: 0, sizePeerTxs: 0, sizeSamples: 0, fwdTxs: 0 })
   assert.deepEqual(s.h1, s.h24)
   assert.equal(s.missed10m, 2)
   assert.deepEqual(s.lastMissed, { round: 104, t })
@@ -133,4 +133,31 @@ test('round tracker reports null before any bft line and ignores rounds while se
   tr.ingest({ kind: 'leader', round: 20, leader: OTHER, t: T0 })
   assert.equal(tr.summary(T0)!.h24.led, 0)
   assert.equal(tr.summary(T0)!.h24.netRounds, 1)
+})
+
+test('block size is compared with the median of preceding network blocks', () => {
+  const tr = createRoundTracker()
+  tr.setSelf(ME)
+  const t = T0
+  let round = 1000
+  const block = (author: string, txs: number) => {
+    tr.ingest({ kind: 'proposal', round: round++, author, seq: round, t })
+    tr.ingest({ kind: 'stats', txs, t })
+  }
+  // Too little context: our first block is skipped.
+  block(ME, 5)
+  // 50 network blocks of 20 txs with two outliers that the median ignores.
+  for (let i = 0; i < 48; i++) block(OTHER, 20)
+  block(OTHER, 500)
+  block(OTHER, 0)
+  block(ME, 15)
+  tr.ingest({ kind: 'fwd', txs: 3, t })
+  tr.ingest({ kind: 'fwd', txs: 4, t })
+
+  const a = tr.summary(t)!.h24
+  assert.equal(a.sizeSamples, 1)
+  assert.equal(a.sizeOurTxs, 15)
+  assert.equal(a.sizePeerTxs, 20)
+  assert.equal(sizeRatio(a), 0.75)
+  assert.equal(a.fwdTxs, 7)
 })

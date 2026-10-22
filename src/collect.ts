@@ -70,7 +70,7 @@ export function createCollector() {
       return { ...errorFrame(ts, getHistory(), 'rpc'), status: 'crit', newCrit }
     }
 
-    const { blockDelta, bps } = recordBlock(state, block)
+    const { blockDelta, bps, stalledMs } = recordBlock(state, block)
 
     let mt: string
     try {
@@ -104,6 +104,7 @@ export function createCollector() {
       thresholds,
       exec: execLog.snapshot(),
       rounds: bftLog.summary(),
+      stalledMs,
     })
     const newCrit = alerts.processWarnings(ts, built.frame.warnings, built.snap)
     if (built.restarted) alerts.notifyRestart(ts, built.uptime, built.snap)

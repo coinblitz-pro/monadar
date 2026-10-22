@@ -6,13 +6,23 @@ import { renderTable } from './format'
 import { eventIcon, renderHistory } from './history_render'
 import { getRecent, recentCount } from './log'
 import { ui } from './ui'
-import type { Cell, CounterCell, Frame } from './types'
+import { sizeRatio } from './bft_log'
+import type { Cell, CounterCell, Frame, RoundAgg } from './types'
 
 const EOL = '\x1b[K'
 
 // Last rendered dashboard body (timestamp → history). Set by applyFrame(),
 // reused by paint() on every keypress so overlays toggle without a new frame.
 let lastBody = ''
+
+// Txs in our committed blocks plus our block size relative to neighbouring
+// network blocks (100% = same). Yellow below 80% once there are enough samples.
+function txsVsNet(a: RoundAgg): string {
+  const ratio = sizeRatio(a)
+  if (ratio === null) return String(a.txs)
+  const pct = `${Math.round(ratio * 100)}% net`
+  return `${a.txs} ${ratio < 0.8 && a.sizeSamples >= 10 ? c.yellow(pct) : c.dim(pct)}`
+}
 
 function fmtCell(cell: CounterCell): string {
   const v = cell.value !== null ? String(cell.value) : '?'
@@ -157,7 +167,7 @@ export function applyFrame(f: Frame) {
       { label: 'missed:', value: missedVal },
       { label: 'unseen:', value: unseenVal },
       { label: 'blocks:', value: String(d.committed) },
-      { label: 'txs:', value: String(d.txs) },
+      { label: 'txs:', value: txsVsNet(d) },
       { label: 'net_tc:', value: `${netPct} ${c.dim(`${r.roundsPerSec.toFixed(2)} r/s`)}` },
     ])
   }
@@ -201,7 +211,7 @@ function renderHelp(): string {
   out += h('rpc', 'RPC response time', 'voted', 'vote participation (votes/handled)')
   out += h('led24h', 'rounds we led, 24h (1h)', 'missed', 'our rounds ended by TC, 24h')
   out += h('unseen', 'our rounds never seen; late = we timed out, net did not', 'blocks', 'our blocks committed, 24h')
-  out += h('txs', 'txs in our blocks, 24h', 'net_tc', 'network rounds ended by TC, 24h')
+  out += h('txs', 'txs in our blocks; % = size vs neighbours', 'net_tc', 'network rounds ended by TC, 24h')
   return out
 }
 

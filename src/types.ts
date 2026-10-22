@@ -5,6 +5,7 @@ export type Thresholds = {
   rpc_max: number
   tc_max: number
   exec_ms_max: number
+  stuck_sec: number
 }
 
 export type ExecStats = { count: number; p50: number; p99: number; max: number }
@@ -23,6 +24,14 @@ export type RoundAgg = {
   netRounds: number
   netMissed: number
   lateTmo: number
+  // Block size vs network: txs in each of our proposals, and the median txs of
+  // the network blocks right before it (load changes over time, so we compare
+  // with neighbours; the median ignores outliers). sizeSamples = our blocks counted.
+  sizeOurTxs: number
+  sizePeerTxs: number
+  sizeSamples: number
+  // Transactions other nodes forwarded to our txpool (our mempool intake).
+  fwdTxs: number
 }
 
 export type RoundSummary = {

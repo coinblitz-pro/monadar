@@ -4,7 +4,7 @@ import { buildTickFrame, createCollectorState, recordBlock } from './frame'
 import type { MetricsSnapshot } from './metric_snapshot'
 import type { Thresholds } from './types'
 
-const thresholds: Thresholds = { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0, exec_ms_max: 250 }
+const thresholds: Thresholds = { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0, exec_ms_max: 250, stuck_sec: 5 }
 
 function metrics(overrides: Partial<MetricsSnapshot> = {}): MetricsSnapshot {
   return {
@@ -106,7 +106,7 @@ test('buildTickFrame prefers the execution journal over the lagging metric', () 
 test('buildTickFrame raises a critical MISSED_ROUND when our rounds timed out recently', () => {
   const state = createCollectorState()
   const sample = recordBlock(state, 110, 0)
-  const agg = { led: 3, ok: 2, missed: 1, failed: 0, notReceived: 0, committed: 2, txs: 20, netRounds: 1000, netMissed: 5, lateTmo: 0 }
+  const agg = { led: 3, ok: 2, missed: 1, failed: 0, notReceived: 0, committed: 2, txs: 20, netRounds: 1000, netMissed: 5, lateTmo: 0, sizeOurTxs: 0, sizePeerTxs: 0, sizeSamples: 0, fwdTxs: 0 }
   const { frame, snap } = buildTickFrame(state, {
     ts: '12:00:00',
     block: 110,
@@ -126,7 +126,7 @@ test('buildTickFrame raises a critical MISSED_ROUND when our rounds timed out re
 })
 
 test('with round data, network timeouts/TCs are not warnings but our late timeouts are', () => {
-  const agg = { led: 0, ok: 0, missed: 0, failed: 0, notReceived: 0, committed: 0, txs: 0, netRounds: 1000, netMissed: 5, lateTmo: 0 }
+  const agg = { led: 0, ok: 0, missed: 0, failed: 0, notReceived: 0, committed: 0, txs: 0, netRounds: 1000, netMissed: 5, lateTmo: 0, sizeOurTxs: 0, sizePeerTxs: 0, sizeSamples: 0, fwdTxs: 0 }
   const tick = (lateTmo10m: number, withRounds: boolean) => {
     const state = createCollectorState()
     let sample = recordBlock(state, 110, 0)
@@ -163,4 +163,21 @@ test('buildTickFrame warns when execution latency p99 exceeds exec_ms_max', () =
   })
 
   assert.deepEqual(frame.warnings.map(w => w.key), [ 'EXEC_SLOW' ])
+})
+
+test('STUCK needs the block to stay unchanged for stuck_sec, not a single tick', () => {
+  const state = createCollectorState()
+  const warningsAt = (block: number, nowMs: number) => {
+    const sample = recordBlock(state, block, nowMs)
+    return buildTickFrame(state, {
+      ts: '12:00:00', block, blockDelta: sample.blockDelta, bps: sample.bps, rpcMs: 10,
+      metrics: metrics({ execBlock: block }), thresholds, stalledMs: sample.stalledMs,
+    }).frame.warnings.map(w => w.key)
+  }
+  warningsAt(100, 0)
+  // A timed-out round: same block for 1.5s → not stuck.
+  assert.deepEqual(warningsAt(100, 1500).filter(k => k === 'STUCK'), [])
+  assert.deepEqual(warningsAt(100, 4000).filter(k => k === 'STUCK'), [])
+  assert.deepEqual(warningsAt(100, 5000).filter(k => k === 'STUCK'), [ 'STUCK' ])
+  assert.deepEqual(warningsAt(101, 6000).filter(k => k === 'STUCK'), [], 'clears once blocks advance')
 })

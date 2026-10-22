@@ -1,3 +1,4 @@
+import { sizeRatio } from './bft_log'
 import type { Config, Frame, RoundAgg, RoundSummary, Snapshot, Warning } from './types'
 
 export type Notifier = {
@@ -48,9 +49,15 @@ function roundLines(r: RoundSummary): string[] {
   const line = (label: string, a: RoundAgg) =>
     `${label} led ${a.led}, ok ${a.ok}, missed ${a.missed + a.failed}, unseen ${a.notReceived}, late ${a.lateTmo}, blocks ${a.committed}, txs ${a.txs}`
   const net = r.h24.netRounds > 0 ? (r.h24.netMissed / r.h24.netRounds * 100).toFixed(2) : '?'
+  const size = (a: RoundAgg) => {
+    const ratio = sizeRatio(a)
+    return ratio === null ? '?' : `${Math.round(ratio * 100)}% (${a.sizeSamples} blocks)`
+  }
   return [
     line('1h   ', r.h1),
     line('24h  ', r.h24),
+    `size   our blocks vs network: 1h ${size(r.h1)}, 24h ${size(r.h24)}`,
+    `fwd    txs forwarded to us: 1h ${r.h1.fwdTxs}, 24h ${r.h24.fwdTxs}`,
     `net    ${r.roundsPerSec.toFixed(2)} rounds/s, TC ${r.h24.netMissed}/${r.h24.netRounds} (${net}%) 24h`,
     ...(r.lastMissed ? [ `last   missed round ${r.lastMissed.round} at ${new Date(r.lastMissed.t).toISOString().slice(0, 19)}Z` ] : []),
   ]

@@ -1,5 +1,6 @@
 import { checkWarnings } from './alerts'
 import { BUILD_VERSION } from './build'
+import { sizeRatio } from './bft_log'
 import type { ExecSnapshot } from './exec_log'
 import { delta, formatUptime } from './format'
 import type { MetricsSnapshot } from './metric_snapshot'
@@ -20,11 +21,15 @@ export type CollectorState = {
   prevUptimeUs: number | null
   execLag: number
   blockSamples: { time: number; block: number }[]
+  lastAdvanceMs: number | null
 }
 
 export type BlockSample = {
   blockDelta: number | null
   bps: string
+  // How long the block number has not changed. A single timed-out round
+  // already pauses blocks for ~1-1.5s, so one equal tick is not "stuck".
+  stalledMs: number
 }
 
 export type FrameDraft = Omit<Frame, 'newCrit' | 'history'>
@@ -50,6 +55,7 @@ export function createCollectorState(): CollectorState {
     prevUptimeUs: null,
     execLag: 0,
     blockSamples: [],
+    lastAdvanceMs: null,
   }
 }
 
@@ -65,17 +71,19 @@ export function shortKey(key: string): string {
 export function recordBlock(state: CollectorState, block: number, nowMs = Date.now()): BlockSample {
   const blockDelta = state.prevBlock !== null ? block - state.prevBlock : null
   state.prevBlock = block
+  if (blockDelta !== 0 || state.lastAdvanceMs === null) state.lastAdvanceMs = nowMs
+  const stalledMs = nowMs - state.lastAdvanceMs
 
   state.blockSamples.push({ time: nowMs, block })
   if (state.blockSamples.length > RATE_WINDOW) state.blockSamples.shift()
-  if (state.blockSamples.length < 2) return { blockDelta, bps: '?' }
+  if (state.blockSamples.length < 2) return { blockDelta, bps: '?', stalledMs }
 
   const first = state.blockSamples[0]
   const last = state.blockSamples[state.blockSamples.length - 1]
   const dt = (last.time - first.time) / 1000
-  if (dt === 0) return { blockDelta, bps: '?' }
+  if (dt === 0) return { blockDelta, bps: '?', stalledMs }
 
-  return { blockDelta, bps: ((last.block - first.block) / dt).toFixed(2) }
+  return { blockDelta, bps: ((last.block - first.block) / dt).toFixed(2), stalledMs }
 }
 
 function resetNodeCounters(state: CollectorState) {
@@ -126,6 +134,7 @@ function logLine(input: {
     ...(d ? [
       `led24=${d.led}`, `ok24=${d.ok}`, `missed24=${d.missed}`, `failed24=${d.failed}`, `unseen24=${d.notReceived}`,
       `blocks24=${d.committed}`, `txs24=${d.txs}`, `net_tc24=${d.netMissed}/${d.netRounds}`, `late24=${d.lateTmo}`,
+      `size_vs_net24=${sizeRatio(d)?.toFixed(2) ?? '?'}`, `fwd24=${d.fwdTxs}`,
     ] : []),
     `txpool=${m.txpool ?? '?'}`, `fwd=${m.fwd ?? '?'}`, `p99=${m.latP99 ?? '?'}ms`,
     `rpc=${input.rpcMs}ms`,
@@ -148,6 +157,7 @@ export function buildTickFrame(
     thresholds: Thresholds
     exec?: ExecSnapshot
     rounds?: RoundSummary | null
+    stalledMs?: number
   },
 ): BuiltFrame {
   const m = input.metrics
@@ -186,7 +196,7 @@ export function buildTickFrame(
 
   const rounds = input.rounds ?? null
   const warnings = checkWarnings(
-    input.blockDelta, dv, dt, dtc, m.syncing, execLag, exec?.p99 ?? null, rounds,
+    input.blockDelta, input.stalledMs ?? null, dv, dt, dtc, m.syncing, execLag, exec?.p99 ?? null, rounds,
     m.peers, m.latP99, input.rpcMs, input.thresholds,
   )
   const hasCrit = warnings.some(w => w.level === 'crit')

@@ -118,6 +118,7 @@ unit's `ExecStart`, so the daemon runs with the same configuration.
 | `--rpc-max <ms>` | Warn when RPC response time exceeds this | `200` |
 | `--tc-max <n>` | Warn when timeout-certificate delta exceeds this | `0` |
 | `--exec-ms-max <ms>` | Warn when execution latency p99 (last 60s) exceeds this | `250` |
+| `--stuck-sec <s>` | Critical STUCK when the block number has not changed for this long (one timed-out round alone pauses blocks for ~1.5s) | `5` |
 
 Execution latency comes from `__exec_block` lines in the `monad-execution` journal: each line has the time execution finished and `ts`, when BFT accepted the proposal. The daemon runs `journalctl -f`, so it needs root or the `systemd-journal` group. If there are no recent lines, monadar falls back to the `monad_execution_ledger_block_num` metric. That metric lags by the OTLP export interval.
 
@@ -130,7 +131,7 @@ Leader rounds come from monad-bft's DEBUG journal lines `leader for round`, `pro
 | yes | yes | `failed` (proposed but did not get enough votes) |
 | no | no | `unseen` (the network moved on, but this node never saw the proposal) |
 
-The dashboard row shows our rounds over 24h (with 1h next to it): `led24h`, `missed` (missed + failed), `unseen`, committed `blocks` and their `txs`. It also shows `net_tc`, the share of all network rounds that ended by TC, with rounds/s. A critical `MISSED ROUND` alert, sent to Telegram after `delay_ticks`, fires while any of our rounds missed or failed in the last 10 minutes. A `LATE` warning fires when our node logged a `local timeout` in the last 10 minutes for a round the network still completed with a QC (no TC). That points to our own network or CPU, not to the leader. While round data is available, the metric-based `TMO`/`TC` warnings are off. Those counters also grow on every other leader's miss, so they mostly add noise. The `tmo` cell is highlighted only for `LATE`. Our key is `node_key`, or the `secp_key` metric label when it is not set. Counters are kept in memory and reset when monadar restarts. If bft logs at INFO only, the row is not shown.
+The dashboard row shows our rounds over 24h (with 1h next to it): `led24h`, `missed` (missed + failed), `unseen`, committed `blocks` and their `txs`. It also shows `net_tc`, the share of all network rounds that ended by TC, with rounds/s. A critical `MISSED ROUND` alert, sent to Telegram after `delay_ticks`, fires while any of our rounds missed or failed in the last 10 minutes. A `LATE` warning fires when our node logged a `local timeout` in the last 10 minutes for a round the network still completed with a QC (no TC). That points to our own network or CPU, not to the leader. While round data is available, the metric-based `TMO`/`TC` warnings are off. Those counters also grow on every other leader's miss, so they mostly add noise. The `tmo` cell is highlighted only for `LATE`. Block size: each of our proposals is compared with the median tx count of the 50 network blocks right before it. Network load changes during the day, and the median ignores outlier blocks. The `txs` cell shows the 24h ratio as `N% net` (100% = same size as neighbours, yellow below 80%). `/status` shows the ratio for 1h and 24h, plus how many transactions other nodes forwarded to our txpool. RPC has no mempool methods, so this forwarded stream is our view of the mempool. Our key is `node_key`, or the `secp_key` metric label when it is not set. Counters are kept in memory and reset when monadar restarts. If bft logs at INFO only, the row is not shown.
 
 ## Configuration
 
@@ -139,7 +140,7 @@ The dashboard row shows our rounds over 24h (with 1h next to it): `led24h`, `mis
 ```json
 {
   "telegram": { "token": "", "chat_id": "", "delay_ticks": 3, "cooldown_min": 5 },
-  "thresholds": { "peers_min": 50, "p99_max": 500, "lag_max": 5, "rpc_max": 200, "tc_max": 0, "exec_ms_max": 250 },
+  "thresholds": { "peers_min": 50, "p99_max": 500, "lag_max": 5, "rpc_max": 200, "tc_max": 0, "exec_ms_max": 250, "stuck_sec": 5 },
   "log": { "file": "", "flush_sec": 60, "max_size_mb": 50, "keep": 5, "events": "" },
   "socket": "",
   "cpu": "",
