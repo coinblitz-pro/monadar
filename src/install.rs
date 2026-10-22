@@ -91,6 +91,11 @@ pub fn install(print: bool) {
         return;
     }
 
+    // A unit pointing into a temp dir breaks on the next reboot or tmp cleanup.
+    if ["/tmp/", "/var/tmp/", "/dev/shm/"].iter().any(|d| argv[0].starts_with(d)) {
+        eprintln!("{} {} is in a temporary directory. Move the binary to its permanent place first.", red("Refusing to install:"), argv[0]);
+        std::process::exit(1);
+    }
     if argv[0].contains("/target/debug/") {
         eprintln!("{} installing a debug build. Install the release binary (cargo build --release) for production.", yellow("Warning:"));
     }

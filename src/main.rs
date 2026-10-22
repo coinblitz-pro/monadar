@@ -136,6 +136,18 @@ async fn run_foreground(s: &Settings) {
 async fn main() {
     let s = config::init();
 
+    if s.args.help {
+        print!("{}", args::USAGE);
+        return;
+    }
+    if !s.args.errors.is_empty() {
+        for e in &s.args.errors {
+            eprintln!("monadar: {e}");
+        }
+        eprintln!("run 'monadar --help' for usage");
+        std::process::exit(2);
+    }
+
     if s.args.version {
         println!("monadar {}", config::BUILD_VERSION);
     } else if s.args.should_init {
