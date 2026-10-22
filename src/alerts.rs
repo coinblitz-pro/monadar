@@ -259,14 +259,7 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
         "EXEC_SLOW",
         i.exec_p99.map(|p| p as f64),
         |p| p > t.exec_ms_max,
-        |p| {
-            warning(
-                Level::Warn,
-                "EXEC_SLOW",
-                format!("EXEC SLOW {p}ms"),
-                format!("Execution latency p99 is {p}ms (proposal → executed, last 60s)"),
-            )
-        },
+        |p| warning(Level::Warn, "EXEC_SLOW", format!("EXEC SLOW {p}ms"), format!("Block execution time p99 is {p}ms (last 60s)")),
     ));
     w.push(rule(
         "LOW_PEERS",
@@ -288,7 +281,12 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
         |l| l > t.p99_max,
         |l| {
             let l = num(l);
-            warning(Level::Warn, "HIGH_P99", format!("HIGH P99 {l}ms"), format!("Broadcast latency p99 is {l}ms: may miss round deadlines"))
+            warning(
+                Level::Warn,
+                "HIGH_P99",
+                format!("HIGH P99 {l}ms"),
+                format!("Broadcast messages reach us {l}ms after they were sent (p99, 30s window): proposals and votes arrive late"),
+            )
         },
     ));
     w.push(rule(

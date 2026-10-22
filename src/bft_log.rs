@@ -524,7 +524,7 @@ impl RoundTracker {
 pub fn start_bft_log_tail() -> Arc<Mutex<RoundTracker>> {
     let tracker = Arc::new(Mutex::new(RoundTracker::new()));
     let tr = tracker.clone();
-    follow_journal("monad-bft", move |line| {
+    follow_journal("monad-bft", None, move |line| {
         let mut tr = tr.lock().unwrap();
         tr.note_line(chrono::Utc::now().timestamp_millis());
         if let Some(e) = parse_bft_line(line) {

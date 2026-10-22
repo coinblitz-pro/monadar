@@ -70,7 +70,7 @@ pub fn snapshot_rows(s: &Snapshot) -> Vec<(String, String)> {
         row("Exec lag", format!("{l} block{}", if l == 1 { "" } else { "s" }));
     }
     if let Some(e) = s.exec_p99 {
-        row("Exec p99", format!("{e} ms"));
+        row("Exec time p99", format!("{e} ms"));
     }
     if let Some(led) = s.led24h {
         row("Rounds 24h", format!("{led} led · {} missed", s.missed24h.unwrap_or(0)));
@@ -79,12 +79,12 @@ pub fn snapshot_rows(s: &Snapshot) -> Vec<(String, String)> {
         row("Peers", num(v));
     }
     if let Some(v) = s.p99 {
-        row("Broadcast p99", format!("{} ms", num(v)));
+        row("Receive p99", format!("{} ms", num(v)));
     }
     if let Some(v) = s.rpc_ms {
         row("RPC", format!("{v} ms"));
     }
-    if s.syncing.is_some() {
+    if s.syncing == Some(1.0) {
         row("Sync", sync_text(s.syncing, &s.sync_pct));
     }
     if let Some(u) = &s.uptime {
@@ -153,19 +153,17 @@ fn pct(n: u64, of: u64) -> String {
 }
 
 fn rounds_grid(r: &RoundSummary) -> Block {
+    let size = |a: &RoundAgg| size_ratio(a).map(|x| format!("{}%", js_round(x * 100.0))).unwrap_or("-".into());
     // Known only while bft logs at DEBUG.
     let debug = |n: u64| if r.bft_debug { n.to_string() } else { "?".into() };
-    let size = |a: &RoundAgg| size_ratio(a).map(|x| format!("{}%", js_round(x * 100.0))).unwrap_or("-".into());
     let rows: Vec<(&str, String, String)> = vec![
         ("Led", r.h1.led.to_string(), r.h24.led.to_string()),
         ("Proposed OK", r.h1.ok.to_string(), r.h24.ok.to_string()),
         ("Missed", (r.h1.missed + r.h1.failed).to_string(), (r.h24.missed + r.h24.failed).to_string()),
         ("Unseen", debug(r.h1.not_received), debug(r.h24.not_received)),
         ("Late timeouts", debug(r.h1.late_tmo), debug(r.h24.late_tmo)),
-        ("Blocks", r.h1.committed.to_string(), r.h24.committed.to_string()),
-        ("Txs", r.h1.txs.to_string(), r.h24.txs.to_string()),
+        ("Txs in our blocks", r.h1.txs.to_string(), r.h24.txs.to_string()),
         ("Size vs network", size(&r.h1), size(&r.h24)),
-        ("Txs forwarded to us", debug(r.h1.fwd_txs), debug(r.h24.fwd_txs)),
     ];
     let mut grid = vec![vec![vec![], vec![p("1h")], vec![p("24h")]]];
     grid.extend(rows.into_iter().map(|(k, a, d)| vec![vec![p(k)], vec![p(a)], vec![p(d)]]));
@@ -193,60 +191,105 @@ pub fn status_message(f: &Frame) -> Msg {
         return m;
     }
 
-    m.push(Block::Heading(vec![p("Node")], 3));
-    let mut rows = vec![("Block".to_string(), block_text(f.block, f.block_delta, &f.bps))];
+    let opt = |v: Option<f64>| v.map(num).unwrap_or("?".into());
+    let lat = |l: Option<Latency>| l.map(|l| format!("{} / {} ms", l.p50, l.p99)).unwrap_or("?".into());
+    let recv = || f.p99.map(|v| format!("{} ms", num(v))).unwrap_or("?".into());
+    let section = |m: &mut Msg, title: &str, rows: Vec<(String, String)>| {
+        m.push(Block::Heading(vec![p(title)], 3)).push(kv(rows));
+    };
+
+    let mut chain = vec![("Block".to_string(), block_text(f.block, f.block_delta, &f.bps))];
     if f.error.is_none() {
-        let exec = match f.exec {
-            Some(e) => format!("lag {} · p50 {} · p99 {} · max {} ms", f.exec_lag, e.p50, e.p99, e.max),
-            None => format!("lag {} block{}", f.exec_lag, if f.exec_lag == 1 { "" } else { "s" }),
-        };
-        rows.extend([
-            ("Execution".to_string(), exec),
-            ("Peers".into(), f.peers.map(num).unwrap_or("?".into())),
-            ("Broadcast p99".into(), f.p99.map(|v| format!("{} ms", num(v))).unwrap_or("?".into())),
-            ("RPC".into(), format!("{} ms", f.rpc_ms)),
-            ("Sync".into(), sync_text(f.syncing, &f.sync_pct)),
-            ("Voted".into(), f.voted_pct.map(|v| format!("{v:.1}%")).unwrap_or("?".into())),
-            ("Stake".into(), f.stake_pct.clone()),
-            ("Uptime".into(), f.uptime.clone()),
-            ("Version".into(), format!("{} · {}", f.ver, f.network)),
-            ("Key".into(), f.key.clone()),
-        ]);
+        if let Some(eb) = f.exec_block {
+            let what = if f.exec_finalized { "finalized" } else { "executed" };
+            chain.push(("Executed".into(), format!("{eb} ({} {what})", eb - f.block)));
+        }
+        if let Some(e) = f.exec {
+            chain.push(("Execution time".into(), format!("p50 {} · p99 {} · max {} ms", e.p50, e.p99, e.max)));
+        }
+        chain.push(("Transactions/s".into(), f.tps.map(|t| format!("{t:.0}")).unwrap_or("?".into())));
+        if f.syncing == Some(1.0) {
+            chain.push(("Sync".into(), sync_text(f.syncing, &f.sync_pct)));
+        }
+        chain.push(("RPC".into(), format!("{} ms", f.rpc_ms)));
     }
-    m.push(kv(rows));
+    section(&mut m, "Chain", chain);
+    if f.error.is_some() {
+        m.push(footer(&f.ts));
+        return m;
+    }
+
+    section(
+        &mut m,
+        "Votes",
+        vec![
+            ("Voted, 10 min".into(), f.voted_pct.map(|v| format!("{v:.1}%")).unwrap_or("?".into())),
+            ("Local timeouts, 10 min".into(), opt(f.timeouts_10m)),
+        ],
+    );
 
     match &f.rounds {
         Some(r) => {
             m.push(Block::Heading(vec![p("Our leader rounds")], 3)).push(rounds_grid(r));
-            m.push(Block::Heading(vec![p("Network")], 3));
             let mut net = vec![
-                ("Rounds/s".to_string(), format!("{:.2}", r.rounds_per_sec)),
+                ("Peers".to_string(), opt(f.peers)),
+                ("Sessions".into(), opt(f.sessions)),
+                ("Ended by TC, 10 min".into(), format!("{} of {} · {}", r.net10m.tc, r.net10m.rounds, pct(r.net10m.tc, r.net10m.rounds))),
                 (
                     "Ended by TC, 24h".into(),
                     format!("{} of {} · {}", r.h24.net_missed, r.h24.net_rounds, pct(r.h24.net_missed, r.h24.net_rounds)),
                 ),
-                ("Ended by TC, 10 min".into(), format!("{} of {} · {}", r.net10m.tc, r.net10m.rounds, pct(r.net10m.tc, r.net10m.rounds))),
                 ("Longest TC run, 10 min".into(), r.net10m.max_tc_run.to_string()),
             ];
-            let lat = |l: Option<Latency>| l.map(|l| format!("{} / {} ms", l.p50, l.p99));
-            if let Some(d) = lat(r.proposal_delay) {
-                net.push(("Proposal delay p50/p99".into(), d));
+            if r.proposal_delay.is_some() || r.finality.is_some() {
+                net.push(("Proposal delay p50/p99".into(), lat(r.proposal_delay)));
+                net.push(("Finality p50/p99".into(), lat(r.finality)));
             }
-            if let Some(d) = lat(r.finality) {
-                net.push(("Finality p50/p99".into(), d));
-            }
+            net.push(("Receive p99, 30 s".into(), recv()));
             if let Some(lm) = r.last_missed {
                 net.push((
                     "Our last missed round".into(),
                     format!("{} · {}", lm.round, clock(lm.t, chrono::Utc::now().timestamp_millis())),
                 ));
             }
-            m.push(kv(net));
+            section(&mut m, "Network", net);
         }
         None => {
-            m.push(Block::Para(vec![i("Round data unavailable: the monad-bft journal is not at DEBUG or not readable.")]));
+            m.push(Block::Para(vec![i(
+                "Round data unavailable: monad-ledger-tail is not running and monad-bft does not log at DEBUG, or the journal is not readable.",
+            )]));
+            section(
+                &mut m,
+                "Network",
+                vec![
+                    ("Peers".to_string(), opt(f.peers)),
+                    ("Sessions".into(), opt(f.sessions)),
+                    ("TCs, 10 min".into(), opt(f.tc_10m)),
+                    ("Receive p99, 30 s".into(), recv()),
+                ],
+            );
         }
     }
+
+    section(
+        &mut m,
+        "Mempool",
+        vec![
+            ("Txpool max, 10 min".into(), opt(f.txpool_max)),
+            ("Forwarded to us, 1h".into(), opt(f.fwd_1h)),
+            ("Forwarded to us, 24h".into(), opt(f.fwd_24h)),
+        ],
+    );
+    section(
+        &mut m,
+        "Node",
+        vec![
+            ("Version".into(), format!("{} · {}", f.ver, f.network)),
+            ("Uptime".into(), f.uptime.clone()),
+            ("Stake".into(), f.stake_pct.clone()),
+            ("Key".into(), f.key.clone()),
+        ],
+    );
     m.push(footer(&f.ts));
     m
 }

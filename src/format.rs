@@ -1,5 +1,3 @@
-use crate::types::Cell;
-
 // f64 → text the way JS prints numbers: integers without a fraction.
 pub fn num(v: f64) -> String {
     format!("{v}")
@@ -44,38 +42,6 @@ pub fn vis_len(s: &str) -> usize {
         n += 1;
     }
     n
-}
-
-pub fn render_table(rows: &[Vec<Cell>]) -> Vec<String> {
-    let num_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
-
-    let mut label_w = vec![0; num_cols];
-    for row in rows {
-        for (col, cell) in row.iter().enumerate() {
-            label_w[col] = label_w[col].max(cell.label.chars().count());
-        }
-    }
-
-    let mut total_w = vec![0; num_cols];
-    for row in rows {
-        for (col, cell) in row.iter().enumerate() {
-            total_w[col] = total_w[col].max(label_w[col] + 1 + vis_len(&cell.value));
-        }
-    }
-
-    rows.iter()
-        .map(|row| {
-            row.iter()
-                .enumerate()
-                .map(|(col, cell)| {
-                    let text = format!("{:<w$} {}", cell.label, cell.value, w = label_w[col]);
-                    let pad = total_w[col].saturating_sub(vis_len(&text));
-                    text + &" ".repeat(pad)
-                })
-                .collect::<Vec<_>>()
-                .join("     ")
-        })
-        .collect()
 }
 
 #[cfg(test)]

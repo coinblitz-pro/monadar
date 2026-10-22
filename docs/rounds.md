@@ -27,13 +27,16 @@ arrived:
 
 ## On the dashboard
 
-The fifth dashboard row shows our rounds over 24h (with 1h next to it): `led24h`, `missed`
-(missed + failed), `unseen`, committed `blocks` and their `txs`. It also shows `net_tc`, the
-share of all network rounds that ended by TC, with rounds/s. With neither ledger-tail nor bft
-at DEBUG, the row is not shown. `unseen` and `late` show `?` while bft is not at DEBUG.
-Counters are kept in memory and reset when monadar restarts.
+The `leader` row shows our rounds over 24h (with 1h next to it): `led`, `missed` (missed +
+failed), `unseen`, the `txs` in our committed blocks and our block `size` against the network.
+`unseen` and `late` show `?` while bft is not at DEBUG. Without any round source the row falls
+back to the `creating_proposal` counter. The `network` row shows `tc`, network rounds ended by
+TC in the last 10 minutes.
 
-The sixth row comes from ledger-tail, p50/p99 over the last 10 minutes:
+Counters are kept in memory. On start monadar reads the last 24h of the ledger-tail journal, so
+they are complete right after a restart; with bft as the only source they start from zero.
+
+From ledger-tail, p50/p99 over the last 10 minutes, in the `network` row:
 
 - `delay`: how late proposals reach us, our clock minus the proposer's block timestamp. It
   grows before our node starts timing out on rounds (`LATE`).

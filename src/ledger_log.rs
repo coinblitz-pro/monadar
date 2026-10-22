@@ -57,9 +57,11 @@ pub fn parse_ledger_line(line: &str) -> Option<LedgerEvent> {
     }
 }
 
-// Follows monad-ledger-tail and feeds the round tracker shared with the bft tail.
+// Follows monad-ledger-tail and feeds the round tracker shared with the bft
+// tail. Starts with the last 24h of the journal, so the 24h round counters are
+// complete right after a monadar restart (about 600k lines, a few seconds).
 pub fn start_ledger_tail(tracker: Arc<Mutex<RoundTracker>>) {
-    follow_journal("monad-ledger-tail", move |line| {
+    follow_journal("monad-ledger-tail", Some("-24h"), move |line| {
         let mut tr = tracker.lock().unwrap();
         tr.note_ledger_line(chrono::Utc::now().timestamp_millis());
         if let Some(e) = parse_ledger_line(line) {

@@ -33,15 +33,16 @@ checks and debugging.
 | `monad-ledger-tail` journal | Proposals with authors, TC rounds with their leaders, finalized blocks, block gas, proposal delay, finality. See [rounds.md](rounds.md). |
 | `monad-bft` journal (DEBUG) | Leader rounds, proposals, TCs, local timeouts, block sizes, forwarded transactions, our own key. See [rounds.md](rounds.md). |
 
-Execution latency comes from `__exec_block` lines in the `monad-execution` journal: each line
-has the time execution finished and `ts`, when BFT accepted the proposal. The daemon runs
+Execution time comes from `__exec_block` lines in the `monad-execution` journal: each line
+has the time execution finished and `ts`, when execution of the block started. The daemon runs
 `journalctl -f`, so it needs root or the `systemd-journal` group. If there are no recent lines,
-monadar falls back to the `monad_execution_ledger_block_num` metric. That metric lags by the
-OTLP export interval.
+monadar falls back to the `monad_execution_ledger_block_num` metric, which is the finalized
+height (2 behind the head), and marks it as such.
 
-The daemon runs `journalctl -f -n 0 -o cat -u <unit>` for both journals and restarts it if it
+The daemon runs `journalctl -f -n 0 -o cat -u <unit>` for each journal and restarts it if it
 exits. journalctl's own errors (no permission, unknown unit) go to the daemon's stderr, each
-distinct message once.
+distinct message once. For monad-ledger-tail the first run starts with `--since -24h`, so the
+24h round counters are complete right after a monadar restart.
 
 ## Our key
 

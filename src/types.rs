@@ -193,11 +193,6 @@ pub struct HistoryEntry {
     pub text: String,
 }
 
-pub struct Cell {
-    pub label: String,
-    pub value: String,
-}
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CounterCell {
     pub value: Option<f64>,
@@ -234,20 +229,42 @@ pub struct Frame {
     pub sync_pct: Option<String>,
     pub peers: Option<f64>,
     pub sessions: Option<f64>,
-    pub commits: CounterCell,
     pub votes: CounterCell,
     pub timeouts: CounterCell,
     pub tc: CounterCell,
+    // Growth of rare counters over a window: their per-tick deltas are 0 on
+    // almost every tick. None until the counter is seen.
+    #[serde(default)]
+    pub timeouts_10m: Option<f64>,
+    #[serde(default)]
+    pub tc_10m: Option<f64>,
+    #[serde(default)]
+    pub fwd_10m: Option<f64>,
+    #[serde(default)]
+    pub fwd_1h: Option<f64>,
+    #[serde(default)]
+    pub fwd_24h: Option<f64>,
     pub exec_lag: i64,
-    pub lag_evt_delta: Option<f64>,
     pub exec_block: Option<i64>,
-    // Execution latency (proposal accepted → block executed) over the last 60s,
-    // parsed from monad-execution's journal. None when no recent log lines.
+    // exec_block came from monad_execution_ledger_block_num, which is the
+    // finalized height (2 behind the proposed head), not the executed one.
+    #[serde(default)]
+    pub exec_finalized: bool,
+    // Block execution time (start of execution → done) over the last 60s, from
+    // monad-execution's journal. None when no recent log lines.
     pub exec: Option<ExecStats>,
-    // Our leader rounds and network round stats from the bft journal (DEBUG lines).
+    // Our leader rounds and network round stats (ledger-tail, bft journal).
     pub rounds: Option<RoundSummary>,
     pub tx: CounterCell,
+    // Transactions per second over the last 30s.
+    #[serde(default)]
+    pub tps: Option<f64>,
     pub txpool: Option<f64>,
+    // Largest txpool size seen in the last 10 minutes: the pool drains within a
+    // second (any leader's block removes its txs), so the current value is
+    // almost always 0.
+    #[serde(default)]
+    pub txpool_max: Option<f64>,
     pub fwd: CounterCell,
     pub p99: Option<f64>,
     pub rpc_ms: i64,
@@ -256,6 +273,7 @@ pub struct Frame {
     pub stake_pct: String,
     pub proposals: CounterCell,
     pub leader_pct: String,
+    // Votes we created per proposal handled, over the last 10 minutes.
     pub voted_pct: Option<f64>,
     pub build_version: String,
     pub status: Status,

@@ -8,12 +8,13 @@ use crate::format::js_round;
 use crate::journal::follow_journal;
 use crate::types::ExecStats;
 
-// Per-block execution latency from monad-execution's journal. Each executed
-// block logs a line like:
+// Per-block execution time from monad-execution's journal. Each executed block
+// logs a line like:
 //   2026-10-22 09:31:36.204673697 [118970] runloop_monad.cpp:381 LOG_INFO __exec_block,bl=115577020,id=0x..,ts=1792661496200,tx=12,...
-// The leading timestamp (UTC, ns) is when execution finished; `ts` (ms) is when
-// our BFT accepted the proposal. Both come from this host's clock, so their
-// difference is the real execution latency — no metric export delay involved.
+// The leading timestamp (UTC, ns) is when execution finished; `ts` (ms) is
+// when execution of the block started (propose_block, runloop_monad.cpp). Their
+// difference is the block's execution time (the line's `tot` plus logging),
+// not the wait before execution.
 
 const WINDOW_MS: f64 = 60_000.0;
 static LINE_RE: LazyLock<Regex> =
@@ -101,7 +102,7 @@ impl ExecWindow {
 pub fn start_exec_log_tail() -> Arc<Mutex<ExecWindow>> {
     let window = Arc::new(Mutex::new(ExecWindow::new(WINDOW_MS)));
     let w = window.clone();
-    follow_journal("monad-execution", move |line| {
+    follow_journal("monad-execution", None, move |line| {
         if let Some(s) = parse_exec_block_line(line) {
             w.lock().unwrap().push(s);
         }

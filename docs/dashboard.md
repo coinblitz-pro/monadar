@@ -1,13 +1,16 @@
 # Dashboard
 
 ```
-monadar  18:48:12
+monadar  21:50:13  035c51..6d4d · mainnet · 0.16.5 · up 10h23m · stake 0.35%
 
-block:   115663179 Δ2 3.28/s     ver:    0.16.5          up:     7h21m        sync:   no           peers:  209            sessions: 268
-commits: 87042 Δ4                votes:  86989 Δ3        tmo:    259 Δ0       tc:     293 Δ0       lag:    9/25ms         lag_evt:  Δ0
-exec:    115663177 (-2)          tx:     1621794 Δ93     txpool: 0            fwd:    23015 Δ0     p99:    183ms          rpc:      0ms
-key:     035c51..6d4d            net:    mainnet         stake:  0.35%        prop:   330 Δ0       leader: 0.38%          voted:    100.0%
-led24h:  4 1h 4                  missed: 0               unseen: 0 late 0     blocks: 4            txs:    75 97% net     net_tc:   0.00% 3.32 r/s
+╭─ chain ─────────────────╮ ╭─ votes ───────────╮ ╭─ leader · 24h ──╮ ╭─ network ───────────╮ ╭─ mempool ───────╮
+│ block    115699304 Δ3   │ │ voted  100.0% 10m │ │ led     499     │ │ peers     207       │ │ txpool  0       │
+│ rate     3.31 blocks/s  │ │ votes  Δ3         │ │ led 1h  45      │ │ sessions  209       │ │ max     42 10m  │
+│ exec     115699304 (+0) │ │ tmo    0 10m      │ │ missed  0       │ │ tc        0 10m     │ │ fwd     480 10m │
+│ exec_ms  6/29ms         │ │                   │ │ txs     8874    │ │ delay     33/188ms  │ │                 │
+│ tps      64             │ │                   │ │ size    99% net │ │ final     622/760ms │ │                 │
+│                         │ │                   │ │                 │ │ recv_p99  170ms     │ │                 │
+╰─────────────────────────╯ ╰───────────────────╯ ╰─────────────────╯ ╰─────────────────────╯ ╰─────────────────╯
 
 ● OK
 
@@ -16,19 +19,30 @@ Recent events:
 10-22 16:59:55 ✓ Resolved: NOT VOTING (1s)
 ```
 
-Cells turn yellow on a warning threshold and red on a critical condition.
+The header holds what rarely changes: our key, network, node version, uptime and stake. Below
+it, one panel per question. Panels sit side by side and wrap onto another band in a narrow
+terminal. Values turn yellow on a warning threshold and red on a critical condition. Press
+**Ctrl+H** for a description of every value.
 
-- **Row 1**: `block` (+blocks/sec), `ver`, `up`, `sync` (+progress %), `peers`, `sessions`
-- **Row 2**: `commits`, `votes`, `tmo`, `tc`, `lag` (execution latency p50/p99 from the journal,
-  or blocks behind consensus without it), `lag_evt`
-- **Row 3**: `exec` (executed block, diff to `block`), `tx`, `txpool`, `fwd`, `p99`, `rpc`
-- **Row 4**: `key`, `net`, `stake`, `prop`, `leader` (prop/handled), `voted` (votes/handled)
-- **Row 5**: our leader rounds and network TCs (see [rounds.md](rounds.md)), from ledger-tail or
-  bft at DEBUG
-- **Row 6**: `delay` (how late proposals reach us) and `final` (time to finality), p50/p99, from
-  ledger-tail
+- **chain**: is the node keeping up. `block` (proposed head, Δ per tick), `rate` (blocks/s), `exec`
+  (executed block and its diff to `block`; `finalized` when it comes from the metric
+  fallback), `exec_ms` (block execution time p50/p99, 60 s), `tps`. `sync` appears only while
+  the node state-syncs, `rpc` only when it is slow.
+- **votes**: are we voting. `voted` (votes per proposal handled, 10 min), `votes` (created
+  this tick), `tmo` (our local timeouts, 10 min).
+- **leader · 24h**: our leader rounds. `led`, `led 1h`, `missed`, `unseen` and `late` (shown
+  only while bft logs at DEBUG), `txs` in our blocks, `size` against the network. See
+  [rounds.md](rounds.md).
+- **network**: the network around us. `peers`, `sessions`, `tc` (rounds ended by TC, 10 min;
+  `/status` adds the share),
+  `delay` (how late proposals reach us), `final` (time to finality), `recv_p99` (receive
+  latency of broadcast messages).
+- **mempool**: are transactions reaching us. `txpool` (now), `max` (largest pool over 10 min;
+  the pool drains within a second, so the max is what matters), `fwd` (txs forwarded to us,
+  10 min).
 
-Below: the status line and the last five events.
+Rare counters are shown over a window: their per-tick deltas are 0 almost every tick. Below the
+panels: the status line and the last five events.
 
 ## Keys
 

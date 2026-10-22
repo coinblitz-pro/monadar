@@ -9,6 +9,48 @@ use crate::metric_snapshot::MetricsSnapshot;
 use crate::types::{CounterCell, Frame, FrameError, HistoryEntry, Level, RoundSummary, Snapshot, Status, Thresholds};
 
 const RATE_WINDOW: usize = 30;
+const MINUTE_MS: i64 = 60_000;
+const TXPOOL_WINDOW_MS: i64 = 10 * MINUTE_MS;
+const DAY_MS: i64 = 24 * 60 * MINUTE_MS;
+// Proposals handled before the 10-minute vote share is shown (~1 min).
+const MIN_VOTED_SAMPLE: f64 = 150.0;
+// Normal distance from the proposed head to the finalized block.
+const FINALIZED_BEHIND: i64 = 2;
+
+// A node counter sampled once a minute for a day, for counts over 10 min / 1 h
+// / 24 h. Kept in memory, so the longer windows fill up after a monadar restart.
+#[derive(Default)]
+struct CounterHistory {
+    samples: VecDeque<(i64, f64)>, // (time ms, value), one a minute
+    last: Option<f64>,
+}
+
+impl CounterHistory {
+    fn push(&mut self, t: i64, v: Option<f64>) {
+        let Some(v) = v else { return };
+        if self.last.is_some_and(|p| v < p) {
+            self.samples.clear(); // the node restarted
+        }
+        if self.samples.back().is_none_or(|(at, _)| t - at >= MINUTE_MS) {
+            self.samples.push_back((t, v));
+        }
+        while self.samples.front().is_some_and(|(at, _)| *at < t - DAY_MS - MINUTE_MS) {
+            self.samples.pop_front();
+        }
+        self.last = Some(v);
+    }
+
+    // Growth over the last `ms`, or over the whole history when it is shorter.
+    fn over(&self, t: i64, ms: i64) -> Option<f64> {
+        let now = self.last?;
+        let base = self.samples.iter().rev().find(|(at, _)| *at <= t - ms).or(self.samples.front())?;
+        Some(now - base.1)
+    }
+
+    fn clear(&mut self) {
+        *self = CounterHistory::default();
+    }
+}
 
 #[derive(Default)]
 pub struct CollectorState {
@@ -17,7 +59,6 @@ pub struct CollectorState {
     prev_votes: Option<f64>,
     prev_timeouts: Option<f64>,
     prev_fwd: Option<f64>,
-    prev_lagging: Option<f64>,
     prev_tc: Option<f64>,
     prev_tx_commits: Option<f64>,
     prev_proposals: Option<f64>,
@@ -25,7 +66,14 @@ pub struct CollectorState {
     exec_lag: i64,
     block_samples: VecDeque<(i64, i64)>, // (time ms, block)
     last_advance_ms: Option<i64>,
-    last_vote: Option<(i64, i64)>, // (time ms, block) when votes last grew
+    last_vote: Option<(i64, i64)>,    // (time ms, block) when votes last grew
+    txpool: VecDeque<(i64, f64)>,     // (time ms, size), last TXPOOL_WINDOW_MS
+    tx_samples: VecDeque<(i64, f64)>, // (time ms, tx commits), last RATE_WINDOW ticks
+    timeouts_hist: CounterHistory,
+    tc_hist: CounterHistory,
+    fwd_hist: CounterHistory,
+    votes_hist: CounterHistory,
+    handled_hist: CounterHistory,
 }
 
 pub struct BlockSample {
@@ -110,11 +158,14 @@ impl CollectorState {
         self.prev_votes = None;
         self.prev_timeouts = None;
         self.prev_tc = None;
-        self.prev_lagging = None;
         self.prev_tx_commits = None;
         self.prev_proposals = None;
         self.prev_fwd = None;
         self.last_vote = None;
+        self.tx_samples.clear();
+        for h in [&mut self.timeouts_hist, &mut self.tc_hist, &mut self.fwd_hist, &mut self.votes_hist, &mut self.handled_hist] {
+            h.clear();
+        }
     }
 }
 
@@ -130,6 +181,7 @@ struct LogInput<'a> {
     exec_block: Option<i64>,
     exec: &'a ExecSnapshot,
     rounds: Option<&'a RoundSummary>,
+    txpool_max: Option<f64>,
     leader_pct: &'a str,
     voted_pct: Option<f64>,
     warning_shorts: Vec<&'a str>,
@@ -190,6 +242,7 @@ fn log_line(i: LogInput) -> String {
     }
     parts.extend([
         format!("txpool={}", opt_num(m.txpool)),
+        format!("txpool_max10m={}", opt_num(i.txpool_max)),
         format!("fwd={}", opt_num(m.fwd)),
         format!("p99={}ms", opt_num(m.lat_p99)),
         format!("rpc={}ms", i.rpc_ms),
@@ -203,7 +256,7 @@ fn log_line(i: LogInput) -> String {
         parts.push(format!("handled={}", num(h)));
     }
     parts.push(format!("leader={}", i.leader_pct));
-    parts.push(format!("voted={}", i.voted_pct.map(|v| format!("{v:.1}%")).unwrap_or("?".into())));
+    parts.push(format!("voted10m={}", i.voted_pct.map(|v| format!("{v:.1}%")).unwrap_or("?".into())));
     let warn_tags = if i.warning_shorts.is_empty() { String::new() } else { format!(" WARN={}", i.warning_shorts.join(",")) };
     parts.join(" ") + &warn_tags
 }
@@ -219,6 +272,40 @@ pub fn build_tick_frame(state: &mut CollectorState, input: TickInput) -> BuiltFr
         state.reset_node_counters();
     }
 
+    if let Some(n) = m.txpool {
+        state.txpool.push_back((input.now_ms, n));
+    }
+    while state.txpool.front().is_some_and(|(t, _)| *t < input.now_ms - TXPOOL_WINDOW_MS) {
+        state.txpool.pop_front();
+    }
+    let txpool_max = state.txpool.iter().map(|(_, n)| *n).reduce(f64::max);
+
+    let now = input.now_ms;
+    state.timeouts_hist.push(now, m.timeouts);
+    state.tc_hist.push(now, m.tc);
+    state.fwd_hist.push(now, m.fwd);
+    state.votes_hist.push(now, m.votes);
+    state.handled_hist.push(now, m.handled);
+    let ten_min = 10 * MINUTE_MS;
+    // A lifetime votes/handled ratio barely moves after days of uptime; a
+    // 10-minute window shows a voting outage. Right after a start the window
+    // holds a few proposals and one export landing between the two counters
+    // swings the ratio by several percent, so wait for about a minute of data.
+    let voted_pct = match (state.votes_hist.over(now, ten_min), state.handled_hist.over(now, ten_min)) {
+        (Some(v), Some(h)) if h >= MIN_VOTED_SAMPLE => Some((v / h * 100.0).min(100.0)),
+        _ => None,
+    };
+    if let Some(n) = m.tx_commits {
+        state.tx_samples.push_back((now, n));
+        if state.tx_samples.len() > RATE_WINDOW {
+            state.tx_samples.pop_front();
+        }
+    }
+    let tps = match (state.tx_samples.front(), state.tx_samples.back()) {
+        (Some((t0, a)), Some((t1, b))) if t1 > t0 => Some((b - a) / ((t1 - t0) as f64 / 1000.0)),
+        _ => None,
+    };
+
     let dv = delta(m.votes, state.prev_votes);
     if m.votes.is_some() && (dv != Some(0.0) || state.last_vote.is_none()) {
         state.last_vote = Some((input.now_ms, input.block));
@@ -226,14 +313,17 @@ pub fn build_tick_frame(state: &mut CollectorState, input: TickInput) -> BuiltFr
     let votes = m.votes.and(state.last_vote).map(|(t, b)| VoteStall { ms: input.now_ms - t, blocks: input.block - b });
     let dt = delta(m.timeouts, state.prev_timeouts);
     let dtc = delta(m.tc, state.prev_tc);
-    let dl = delta(m.lagging, state.prev_lagging);
     let dc = delta(m.commits, state.prev_commits);
 
     // Prefer the execution journal: it's real-time, whereas the metric lags by
     // the OTLP export interval (~2-3 blocks at 0.4s/block).
     let exec = input.exec.stats;
+    let exec_finalized = input.exec.last_block.is_none() && m.exec_block.is_some();
     let exec_block = input.exec.last_block.or(m.exec_block.map(|b| crate::format::js_round(b) as i64));
     let exec_lag = match (exec_block, dc, input.block_delta) {
+        // The metric is the finalized height, normally 2 behind the head even
+        // when execution keeps up.
+        (Some(eb), _, _) if exec_finalized => (input.block - eb - FINALIZED_BEHIND).max(0),
         (Some(eb), _, _) => (input.block - eb).max(0),
         (None, Some(dc), Some(bd)) => ((state.exec_lag + bd) as f64 - dc).max(0.0) as i64,
         _ => state.exec_lag,
@@ -282,10 +372,6 @@ pub fn build_tick_frame(state: &mut CollectorState, input: TickInput) -> BuiltFr
         (Some(p), Some(h)) if h > 0.0 => format!("{:.2}%", p / h * 100.0),
         _ => "?".into(),
     };
-    let voted_pct = match (m.votes, m.handled) {
-        (Some(v), Some(h)) if h > 0.0 => Some(v / h * 100.0),
-        _ => None,
-    };
 
     let log = log_line(LogInput {
         block: input.block,
@@ -299,6 +385,7 @@ pub fn build_tick_frame(state: &mut CollectorState, input: TickInput) -> BuiltFr
         exec_block,
         exec: &input.exec,
         rounds: rounds.as_ref(),
+        txpool_max,
         leader_pct: &leader_pct,
         voted_pct,
         warning_shorts: warnings.iter().map(|w| w.short.as_str()).collect(),
@@ -316,17 +403,23 @@ pub fn build_tick_frame(state: &mut CollectorState, input: TickInput) -> BuiltFr
         sync_pct,
         peers: m.peers,
         sessions: m.sessions,
-        commits: counter(m.commits, state.prev_commits),
         votes: counter(m.votes, state.prev_votes),
         timeouts: counter(m.timeouts, state.prev_timeouts),
         tc: counter(m.tc, state.prev_tc),
+        timeouts_10m: state.timeouts_hist.over(now, ten_min),
+        tc_10m: state.tc_hist.over(now, ten_min),
+        fwd_10m: state.fwd_hist.over(now, ten_min),
+        fwd_1h: state.fwd_hist.over(now, 6 * ten_min),
+        fwd_24h: state.fwd_hist.over(now, DAY_MS),
         exec_lag,
-        lag_evt_delta: dl,
         exec_block,
+        exec_finalized,
         exec,
         rounds,
         tx: counter(m.tx_commits, state.prev_tx_commits),
+        tps,
         txpool: m.txpool,
+        txpool_max,
         fwd: counter(m.fwd, state.prev_fwd),
         p99: m.lat_p99,
         rpc_ms: input.rpc_ms,
@@ -348,7 +441,6 @@ pub fn build_tick_frame(state: &mut CollectorState, input: TickInput) -> BuiltFr
     state.prev_votes = m.votes.or(state.prev_votes);
     state.prev_timeouts = m.timeouts.or(state.prev_timeouts);
     state.prev_fwd = m.fwd.or(state.prev_fwd);
-    state.prev_lagging = m.lagging.or(state.prev_lagging);
     state.prev_tc = m.tc.or(state.prev_tc);
     state.prev_tx_commits = m.tx_commits.or(state.prev_tx_commits);
     state.prev_proposals = m.proposals.or(state.prev_proposals);
@@ -370,17 +462,23 @@ pub fn error_frame(ts: String, history: Vec<HistoryEntry>, error: FrameError, bl
         sync_pct: None,
         peers: None,
         sessions: None,
-        commits: CounterCell::default(),
         votes: CounterCell::default(),
         timeouts: CounterCell::default(),
         tc: CounterCell::default(),
+        timeouts_10m: None,
+        tc_10m: None,
+        fwd_10m: None,
+        fwd_1h: None,
+        fwd_24h: None,
         exec_lag: 0,
-        lag_evt_delta: None,
         exec_block: None,
+        exec_finalized: false,
         exec: None,
         rounds: None,
         tx: CounterCell::default(),
+        tps: None,
         txpool: None,
+        txpool_max: None,
         fwd: CounterCell::default(),
         p99: None,
         rpc_ms: 0,
@@ -488,10 +586,11 @@ mod tests {
     }
 
     #[test]
-    fn execution_lag_is_consensus_minus_execution_block() {
+    fn metric_fallback_is_the_finalized_height_two_behind_the_head() {
         let mut st = CollectorState::default();
         let b = tick(&mut st, 110, 0, &MetricsSnapshot { exec_block: Some(100.0), ..metrics() }, ExecSnapshot::default(), None);
-        assert_eq!(b.frame.exec_lag, 10);
+        assert!(b.frame.exec_finalized);
+        assert_eq!(b.frame.exec_lag, 8);
         assert_eq!(b.frame.status, Status::Warn);
         assert_eq!(keys(&b.frame), vec!["LAG"]);
     }
@@ -596,6 +695,19 @@ mod tests {
         assert!(!not_voting(116, 53.0, 8000), "clears once votes grow");
         // Blocks stalled too: that is STUCK, not a voting problem.
         assert!(!not_voting(116, 53.0, 14000));
+    }
+
+    #[test]
+    fn txpool_max_covers_the_last_ten_minutes() {
+        let mut st = CollectorState::default();
+        let mut max_at = |n: f64, now_ms: i64| {
+            let m = MetricsSnapshot { txpool: Some(n), ..metrics() };
+            tick(&mut st, 110 + now_ms / 1000, now_ms, &m, ExecSnapshot::default(), None).frame.txpool_max
+        };
+        max_at(0.0, 0);
+        assert_eq!(max_at(9.0, 1_000), Some(9.0));
+        assert_eq!(max_at(0.0, 2_000), Some(9.0));
+        assert_eq!(max_at(1.0, 601_500), Some(1.0), "the 9 is older than 10 min");
     }
 
     #[test]

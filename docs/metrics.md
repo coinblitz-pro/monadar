@@ -91,9 +91,9 @@ config). Below, names are given in the Prometheus form (dots replaced by undersc
 
 | Metric | Description |
 |--------|-------------|
-| `monad_execution_ledger_block_num` | Current execution block number, a true gauge (the collector prints it in scientific notation, e.g. `5.9422302e+07`). Trails the execution journal by up to the export interval. |
+| `monad_execution_ledger_block_num` | The **finalized** block number, a true gauge set when monad-ledger handles `OptimisticCommit::Finalized` (monad-ledger/src/lib.rs). Normally 2 behind the proposed head, not the executed block. The collector prints it in scientific notation, e.g. `5.9422302e+07`. |
 | `monad_execution_ledger_num_commits` | Number of ledger commits |
-| `monad_execution_ledger_num_tx_commits` | Number of transaction commits |
+| `monad_execution_ledger_num_tx_commits` | Transactions in finalized blocks since bft started |
 
 ## Peer Discovery
 
@@ -446,31 +446,29 @@ Expected bandwidth at 10k TPS: ~6 MB/s (3 MB block data × 2x redundancy)
 
 ## Metrics used by monadar
 
-| Display field | Source | Notes |
+Rare counters are shown as growth over a window (10 min, 1 h, 24 h, sampled once a minute):
+their per-second deltas are 0 on almost every tick.
+
+| Field | Source | Notes |
 |--------------|--------|-------|
-| block | `eth_blockNumber` (RPC) | Newest proposed block, ahead of execution |
-| ver | `monad_node_info` label `service_version` | |
-| up | `monad_total_uptime_us` | A drop means the node restarted |
+| header | `node_key` / bft journal / `secp_key` label, `monad_node_info` labels `network` and `service_version`, `monad_total_uptime_us`, `monad_state_node_state_self_stake_bps` | Values that rarely change. An uptime drop means the node restarted |
+| block | `eth_blockNumber` (RPC) | The proposed head, ahead of execution and finalization |
+| exec | `__exec_block` `bl` (execution journal), else `monad_execution_ledger_block_num` | Executed block and its diff to `block`. The metric fallback is the finalized height, marked `finalized` |
+| exec_ms | `__exec_block` line time minus `ts` | Block execution time p50/p99 over 60 s. `ts` is when execution of the block started, so this is not the wait before execution |
+| tps | `monad_execution_ledger_num_tx_commits` | Transactions per second over 30 s |
+| sync | `monad_statesync_syncing` | Shown only while syncing. Once a node is live it cannot return to statesync (monad-statesync), so this matters at boot |
+| voted | `created_vote / handle_proposal` | Over the last 10 min. A lifetime ratio barely moves after days of uptime |
+| votes | `monad_state_consensus_events_created_vote` | Delta per tick; `NOT VOTING` watches it |
+| tmo | `monad_state_consensus_events_local_timeout` | Last 10 min. Most follow other leaders' misses; `LATE` separates ours |
+| leader row | ledger-tail, bft journal | See [rounds.md](rounds.md). Without round data: `prop` (`creating_proposal`) and our share of proposals |
 | peers | `monad_peer_disc_num_peers` | |
 | sessions | `monad_wireauth_udp_state_total_sessions` | |
-| stake | `monad_state_node_state_self_stake_bps` | Divided by 100 for % |
-| sync | `monad_statesync_syncing` | Progress: `monad_statesync_progress_estimate / monad_statesync_last_target` |
-| commits | `monad_state_consensus_events_commit_block` | Delta shown |
-| votes | `monad_state_consensus_events_created_vote` | Delta shown |
-| tmo | `monad_state_consensus_events_local_timeout` | Delta shown |
-| tc | `monad_state_consensus_events_created_tc` | Delta shown |
-| lag | `__exec_block` lines (execution journal) | Execution latency p50/p99 over 60 s. Without the journal: blocks behind, `block − exec` |
-| lag_evt | `monad_state_consensus_events_rx_execution_lagging` | Delta of monotonic counter |
-| exec | `__exec_block` `bl`, else `monad_execution_ledger_block_num` | Executed block, diff to `block` |
-| tx | `monad_execution_ledger_num_tx_commits` | Delta shown |
-| txpool | `monad_bft_txpool_pool_tracked_txs` | |
-| fwd | `monad_bft_txpool_pool_insert_forwarded_txs` | Delta shown |
-| p99 | `monad_bft_raptorcast_udp_primary_broadcast_latency_p99_ms` | |
-| rpc | `eth_blockNumber` response time | |
-| key | `node_key` config, else the bft journal, else label `secp_key` | |
-| net | `monad_node_info` label `network` | |
-| prop | `monad_state_consensus_events_creating_proposal` | Delta shown |
-| leader | `creating_proposal / handle_proposal` | Our share of proposals |
-| voted | `created_vote / handle_proposal` | |
-| rounds row | ledger-tail, bft journal | See [rounds.md](rounds.md) |
+| tc | ledger-tail `timeout` events, else `monad_state_consensus_events_created_tc` | Network rounds ended by TC, last 10 min |
 | delay, final | ledger-tail | Proposal delay and time to finality, p50/p99 over 10 min |
+| recv_p99 | `monad_bft_raptorcast_udp_primary_broadcast_latency_p99_ms` | Receive side: our clock minus the sender's timestamp when a broadcast message decodes, p99 over the node's 30 s tumbling window. Noisy |
+| txpool | `monad_bft_txpool_pool_tracked_txs` | Current and max over 10 min; ~0 most of the time, txs leave the pool once any block includes them |
+| fwd | `monad_bft_txpool_pool_insert_forwarded_txs` | Last 10 min; `/status` shows 1 h and 24 h |
+
+Logged but not shown: `commit_block` (follows the block count), `rx_execution_lagging` (grows
+only while we are leader and cannot propose, in practice right after a node start), RPC response
+time (0 ms on localhost; `SLOW RPC` still alerts).

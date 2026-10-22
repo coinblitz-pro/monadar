@@ -46,11 +46,11 @@ unit's `ExecStart`, so the daemon runs with the same configuration.
 | `--bell` | Terminal bell on a new critical alert | off |
 | `--verbose`, `-v` | Open the parameter help panel on start | off |
 | `--peers-min <n>` | Warn when peers drop below this | `50` |
-| `--p99-max <ms>` | Warn when broadcast p99 exceeds this | `500` |
+| `--p99-max <ms>` | Warn when the broadcast receive latency p99 exceeds this | `500` |
 | `--lag-max <n>` | Warn when execution lag exceeds this many blocks | `5` |
 | `--rpc-max <ms>` | Warn when RPC response time exceeds this | `200` |
 | `--tc-max <n>` | Warn when timeout-certificate delta exceeds this | `0` |
-| `--exec-ms-max <ms>` | Warn when execution latency p99 (last 60s) exceeds this | `250` |
+| `--exec-ms-max <ms>` | Warn when block execution time p99 (last 60s) exceeds this | `250` |
 | `--stuck-sec <s>` | Critical STUCK when the block number has not changed for this long (one timed-out round alone pauses blocks for ~1.5s) | `5` |
 | `--net-tc-pct-max <n>` | `NET DEGRADED` when more than n% of network rounds in the last 10 min ended by TC (normal is ~0.7%) | `3` |
 | `--net-tc-run-max <n>` | `NET DEGRADED` when more than n TC rounds came back to back in the last 10 min (the whole chain stands still) | `1` |

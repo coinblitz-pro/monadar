@@ -15,10 +15,10 @@ cells) and in the event history. Critical ones that persist `delay_ticks` go to 
 | `LEDGER TAIL SILENT` | warning | the ledger-tail journal fed monadar and has been silent for 60 s |
 | `LATE` | warning | we timed out on a round the network completed ([rounds.md](rounds.md)) |
 | `NET DEGRADED` | warning | many network rounds end by TC; not our node ([rounds.md](rounds.md)) |
-| `EXEC SLOW` | warning | execution latency p99 over the last 60 s exceeds `exec_ms_max` |
+| `EXEC SLOW` | warning | block execution time p99 over the last 60 s exceeds `exec_ms_max` |
 | `LAG` | warning | execution is more than `lag_max` blocks behind consensus |
 | `LOW PEERS` | warning | peers below `peers_min` |
-| `HIGH P99` | warning | broadcast p99 above `p99_max` |
+| `HIGH P99` | warning | broadcast receive latency p99 (node's 30 s window) above `p99_max` |
 | `SLOW RPC` | warning | RPC response above `rpc_max` |
 | `TMO`, `TC` | warning | local timeouts / TCs grew; only without round data from the bft journal |
 
