@@ -11,6 +11,7 @@ export type ExecStats = { count: number; p50: number; p99: number; max: number }
 
 // Leader-round counters (bft_log.ts). led/ok/missed/failed/notReceived/committed/txs
 // are for our node; netRounds/netMissed are network-wide (rounds seen / rounds ended by TC).
+// lateTmo: rounds our node timed out on while the network completed them with a QC.
 export type RoundAgg = {
   led: number
   ok: number
@@ -21,12 +22,14 @@ export type RoundAgg = {
   txs: number
   netRounds: number
   netMissed: number
+  lateTmo: number
 }
 
 export type RoundSummary = {
   h1: RoundAgg
   h24: RoundAgg
   missed10m: number
+  lateTmo10m: number
   lastMissed: { round: number; t: number } | null
   roundsPerSec: number
 }

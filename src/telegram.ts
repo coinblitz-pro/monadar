@@ -46,7 +46,7 @@ export function downTelegramMessage(w: Warning): string {
 
 function roundLines(r: RoundSummary): string[] {
   const line = (label: string, a: RoundAgg) =>
-    `${label} led ${a.led}, ok ${a.ok}, missed ${a.missed + a.failed}, unseen ${a.notReceived}, blocks ${a.committed}, txs ${a.txs}`
+    `${label} led ${a.led}, ok ${a.ok}, missed ${a.missed + a.failed}, unseen ${a.notReceived}, late ${a.lateTmo}, blocks ${a.committed}, txs ${a.txs}`
   const net = r.h24.netRounds > 0 ? (r.h24.netMissed / r.h24.netRounds * 100).toFixed(2) : '?'
   return [
     line('1h   ', r.h1),

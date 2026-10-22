@@ -45,13 +45,15 @@ export function applyFrame(f: Frame) {
     ? c.red(fmtCell(f.votes))
     : fmtCell(f.votes)
 
-  const tmoVal = f.timeouts.delta !== null && f.timeouts.delta > 0
-    ? c.yellow(fmtCell(f.timeouts))
-    : fmtCell(f.timeouts)
+  // With round data, raw timeout/TC deltas are mostly other leaders' misses:
+  // highlight tmo only when we were late on a round the network completed.
+  const tmoBad = f.rounds
+    ? f.rounds.lateTmo10m > 0
+    : f.timeouts.delta !== null && f.timeouts.delta > 0
+  const tmoVal = tmoBad ? c.yellow(fmtCell(f.timeouts)) : fmtCell(f.timeouts)
 
-  const tcVal = f.tc.delta !== null && f.tc.delta > thresholds.tc_max
-    ? c.yellow(fmtCell(f.tc))
-    : fmtCell(f.tc)
+  const tcBad = !f.rounds && f.tc.delta !== null && f.tc.delta > thresholds.tc_max
+  const tcVal = tcBad ? c.yellow(fmtCell(f.tc)) : fmtCell(f.tc)
 
   const lagEvtVal = f.lagEvtDelta !== null && f.lagEvtDelta > 0
     ? c.yellow(`Δ${f.lagEvtDelta}`)
@@ -146,7 +148,9 @@ export function applyFrame(f: Frame) {
     const d = r.h24
     const lost = d.missed + d.failed
     const missedVal = r.missed10m > 0 ? c.red(String(lost)) : lost > 0 ? c.yellow(String(lost)) : String(lost)
-    const unseenVal = d.notReceived > 0 ? c.yellow(String(d.notReceived)) : '0'
+    const lateStr = `late ${d.lateTmo}`
+    const unseenVal = `${d.notReceived > 0 ? c.yellow(String(d.notReceived)) : '0'} `
+      + (r.lateTmo10m > 0 ? c.yellow(lateStr) : c.dim(lateStr))
     const netPct = d.netRounds > 0 ? (d.netMissed / d.netRounds * 100).toFixed(2) + '%' : '?'
     rows.push([
       { label: 'led24h:', value: `${d.led} ${c.dim(`1h ${r.h1.led}`)}` },
@@ -196,7 +200,7 @@ function renderHelp(): string {
   out += h('p99', 'UDP broadcast latency p99', 'leader', 'leader rate (prop/handled)')
   out += h('rpc', 'RPC response time', 'voted', 'vote participation (votes/handled)')
   out += h('led24h', 'rounds we led, 24h (1h)', 'missed', 'our rounds ended by TC, 24h')
-  out += h('unseen', 'our rounds we never saw, 24h', 'blocks', 'our blocks committed, 24h')
+  out += h('unseen', 'our rounds never seen; late = we timed out, net did not', 'blocks', 'our blocks committed, 24h')
   out += h('txs', 'txs in our blocks, 24h', 'net_tc', 'network rounds ended by TC, 24h')
   return out
 }

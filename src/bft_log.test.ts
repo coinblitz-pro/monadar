@@ -42,6 +42,12 @@ test('parseBftLine reads leader, proposal, TC and commit lines', () => {
     { kind: 'tc', round: 115728525, t: Date.parse('2026-10-22T11:13:10.169671Z') },
   )
   assert.deepEqual(parseBftLine(commitLine(115601547, 10)), { kind: 'commit', block: 115601547, txs: 10, t: Date.parse('2026-10-22T11:36:41.387355Z') })
+  const localTmo = JSON.stringify({
+    timestamp: '2026-10-22T11:14:37.142280Z', level: 'DEBUG',
+    fields: { message: 'local timeout', round: '115728811', leader: OTHER, next_leader: ME },
+    target: 'monad_consensus_state',
+  })
+  assert.deepEqual(parseBftLine(localTmo), { kind: 'local_tmo', round: 115728811, t: Date.parse('2026-10-22T11:14:37.142280Z') })
 })
 
 test('parseBftLine ignores QC advances, other messages and non-JSON', () => {
@@ -80,10 +86,30 @@ test('round tracker classifies our rounds and counts our committed blocks', () =
 
   const s = tr.summary(t)
   assert.ok(s)
-  assert.deepEqual(s.h24, { led: 4, ok: 1, missed: 1, failed: 1, notReceived: 1, committed: 1, txs: 7, netRounds: 6, netMissed: 3 })
+  assert.deepEqual(s.h24, { led: 4, ok: 1, missed: 1, failed: 1, notReceived: 1, committed: 1, txs: 7, netRounds: 6, netMissed: 3, lateTmo: 0 })
   assert.deepEqual(s.h1, s.h24)
   assert.equal(s.missed10m, 2)
   assert.deepEqual(s.lastMissed, { round: 104, t })
+})
+
+test('local timeouts count as late only when the network completed the round without a TC', () => {
+  const tr = createRoundTracker()
+  tr.setSelf(ME)
+  const t = T0
+  // 200: other leader missed → network TC; our local timeout is just the miss.
+  tr.ingest({ kind: 'leader', round: 200, leader: OTHER, t })
+  tr.ingest({ kind: 'local_tmo', round: 200, t })
+  tr.ingest({ kind: 'tc', round: 200, t })
+  // 201: proposal arrived and the round got a QC, but we had already timed out → late.
+  tr.ingest({ kind: 'proposal', round: 201, author: OTHER, seq: 5, t })
+  tr.ingest({ kind: 'local_tmo', round: 201, t })
+  tr.ingest({ kind: 'leader', round: 220, leader: OTHER, t })
+
+  const s = tr.summary(t)!
+  assert.equal(s.h24.lateTmo, 1)
+  assert.equal(s.lateTmo10m, 1)
+  assert.equal(s.h24.netMissed, 1)
+  assert.equal(s.missed10m, 0)
 })
 
 test('round tracker windows: misses older than 10 min stop alerting, older than 24h drop out', () => {

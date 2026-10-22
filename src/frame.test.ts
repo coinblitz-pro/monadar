@@ -106,7 +106,7 @@ test('buildTickFrame prefers the execution journal over the lagging metric', () 
 test('buildTickFrame raises a critical MISSED_ROUND when our rounds timed out recently', () => {
   const state = createCollectorState()
   const sample = recordBlock(state, 110, 0)
-  const agg = { led: 3, ok: 2, missed: 1, failed: 0, notReceived: 0, committed: 2, txs: 20, netRounds: 1000, netMissed: 5 }
+  const agg = { led: 3, ok: 2, missed: 1, failed: 0, notReceived: 0, committed: 2, txs: 20, netRounds: 1000, netMissed: 5, lateTmo: 0 }
   const { frame, snap } = buildTickFrame(state, {
     ts: '12:00:00',
     block: 110,
@@ -115,7 +115,7 @@ test('buildTickFrame raises a critical MISSED_ROUND when our rounds timed out re
     rpcMs: 10,
     metrics: metrics({ execBlock: 110 }),
     thresholds,
-    rounds: { h1: agg, h24: agg, missed10m: 1, lastMissed: { round: 5, t: 0 }, roundsPerSec: 2.5 },
+    rounds: { h1: agg, h24: agg, missed10m: 1, lateTmo10m: 0, lastMissed: { round: 5, t: 0 }, roundsPerSec: 2.5 },
   })
 
   assert.deepEqual(frame.warnings.map(w => w.key), [ 'MISSED_ROUND' ])
@@ -123,6 +123,29 @@ test('buildTickFrame raises a critical MISSED_ROUND when our rounds timed out re
   assert.equal(snap.led24h, 3)
   assert.equal(snap.missed24h, 1)
   assert.match(frame.logLine, /led24=3 ok24=2 missed24=1 failed24=0 unseen24=0 blocks24=2 txs24=20 net_tc24=5\/1000/)
+})
+
+test('with round data, network timeouts/TCs are not warnings but our late timeouts are', () => {
+  const agg = { led: 0, ok: 0, missed: 0, failed: 0, notReceived: 0, committed: 0, txs: 0, netRounds: 1000, netMissed: 5, lateTmo: 0 }
+  const tick = (lateTmo10m: number, withRounds: boolean) => {
+    const state = createCollectorState()
+    let sample = recordBlock(state, 110, 0)
+    const base = { ts: '12:00:00', bps: sample.bps, rpcMs: 10, thresholds }
+    buildTickFrame(state, { ...base, block: 110, blockDelta: sample.blockDelta, metrics: metrics({ execBlock: 110 }) })
+    sample = recordBlock(state, 112, 1000)
+    return buildTickFrame(state, {
+      ...base,
+      block: 112,
+      blockDelta: sample.blockDelta,
+      // another leader missed: both counters grew by one
+      metrics: metrics({ execBlock: 112, timeouts: 1, tc: 1, votes: 101 }),
+      rounds: withRounds ? { h1: agg, h24: agg, missed10m: 0, lateTmo10m, lastMissed: null, roundsPerSec: 2.5 } : null,
+    }).frame.warnings.map(w => w.key)
+  }
+
+  assert.deepEqual(tick(0, false), [ 'TMO', 'TC' ], 'metric fallback without journal data')
+  assert.deepEqual(tick(0, true), [], 'network misses are not our problem')
+  assert.deepEqual(tick(2, true), [ 'LATE' ])
 })
 
 test('buildTickFrame warns when execution latency p99 exceeds exec_ms_max', () => {

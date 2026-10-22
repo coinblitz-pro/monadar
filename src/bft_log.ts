@@ -6,11 +6,15 @@ import type { RoundAgg, RoundSummary } from './types'
 //   "proposal message"  {author, proposal: "... proposal_round: R ... seq_num: N ..."}
 //   "advancing round"   {certificate: "Qc(QC { info: Vote { .. round: R }" | "Tc(TimeoutCertificate { epoch: E, round: R"}
 //   "committed block"   {block_num, num_tx}
+//   "local timeout"     {round, leader}  — our pacemaker gave up on the round
 // The round right after a TC has no "leader for round" line; its proposal's
 // author is the leader. A round is classified once the chain is FINAL_LAG
 // rounds past it, so its TC (logged when entering R+1) has surely arrived:
 //   proposal, no TC → ok        no proposal, TC → missed
 //   proposal + TC   → failed    neither         → not_received (we didn't see it)
+// A local timeout on a round that got no TC means the network finished the
+// round normally and only we were late — that's our problem (network/CPU).
+// A local timeout on a TC round is just the leader's miss.
 
 const FINAL_LAG = 10
 const MINUTE = 60_000
@@ -22,9 +26,10 @@ export type BftEvent =
   | { kind: 'leader'; round: number; leader: string | null; t: number }
   | { kind: 'proposal'; round: number; author: string; seq: number | null; t: number }
   | { kind: 'tc'; round: number; t: number }
+  | { kind: 'local_tmo'; round: number; t: number }
   | { kind: 'commit'; block: number; txs: number; t: number }
 
-const MARKERS = [ '"leader for round"', '"proposal message"', '"advancing round"', '"committed block"' ]
+const MARKERS = [ '"leader for round"', '"proposal message"', '"advancing round"', '"committed block"', '"local timeout"' ]
 
 export function parseBftLine(line: string): BftEvent | null {
   // Cheap substring check first: the journal carries ~100 lines/s, most irrelevant.
@@ -57,14 +62,16 @@ export function parseBftLine(line: string): BftEvent | null {
     }
     case 'committed block':
       return { kind: 'commit', block: Number(f.block_num), txs: Number(f.num_tx) || 0, t }
+    case 'local timeout':
+      return { kind: 'local_tmo', round: Number(f.round), t }
   }
   return null
 }
 
-type RoundInfo = { leader: string | null; author: string | null; seq: number | null; tc: boolean; t: number }
+type RoundInfo = { leader: string | null; author: string | null; seq: number | null; tc: boolean; localTmo: boolean; t: number }
 
 export function emptyAgg(): RoundAgg {
-  return { led: 0, ok: 0, missed: 0, failed: 0, notReceived: 0, committed: 0, txs: 0, netRounds: 0, netMissed: 0 }
+  return { led: 0, ok: 0, missed: 0, failed: 0, notReceived: 0, committed: 0, txs: 0, netRounds: 0, netMissed: 0, lateTmo: 0 }
 }
 
 function addAgg(into: RoundAgg, a: RoundAgg) {
@@ -94,7 +101,7 @@ export function createRoundTracker() {
   function info(round: number, t: number): RoundInfo {
     let r = pending.get(round)
     if (!r) {
-      r = { leader: null, author: null, seq: null, tc: false, t }
+      r = { leader: null, author: null, seq: null, tc: false, localTmo: false, t }
       pending.set(round, r)
     }
     return r
@@ -106,6 +113,7 @@ export function createRoundTracker() {
     const b = bucket(r.t)
     b.netRounds++
     if (r.tc) b.netMissed++
+    if (r.localTmo && !r.tc) b.lateTmo++
     if (!self || leader !== self) return
 
     b.led++
@@ -143,7 +151,8 @@ export function createRoundTracker() {
         ourSeqs.add(e.seq)
         if (ourSeqs.size > MAX_OUR_SEQS) ourSeqs.delete(ourSeqs.values().next().value!)
       }
-    } else r.tc = true
+    } else if (e.kind === 'local_tmo') r.localTmo = true
+    else r.tc = true
 
     if (e.round > maxRound) {
       maxRound = e.round
@@ -172,6 +181,7 @@ export function createRoundTracker() {
       h1: sum(now - 59, now),
       h24: sum(now - DAY_MINUTES + 1, now),
       missed10m: last10.missed + last10.failed,
+      lateTmo10m: last10.lateTmo,
       lastMissed,
       roundsPerSec: prevMinute.netRounds / 60,
     }

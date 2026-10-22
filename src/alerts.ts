@@ -19,7 +19,8 @@ function fmtDuration(ms: number): string {
 export function checkWarnings(
   blockDelta: number | null,
   dv: number | null, dt: number | null, dtc: number | null,
-  syncing: number | null, lagging: number, execP99: number | null, missed10m: number | null,
+  syncing: number | null, lagging: number, execP99: number | null,
+  rounds: { missed10m: number; lateTmo10m: number } | null,
   peers: number | null, latP99: number | null,
   rpcMs: number | null,
   thresholds: Thresholds,
@@ -35,14 +36,22 @@ export function checkWarnings(
   if (dv !== null && dv === 0 && blockDelta !== null && blockDelta > 0)
     w.push({ level: 'crit', key: 'NOT_VOTING', short: 'NOT VOTING', detail: 'Node is not creating votes while blocks advance — consensus participation lost' })
 
-  if (missed10m !== null && missed10m > 0)
-    w.push({ level: 'crit', key: 'MISSED_ROUND', short: `MISSED ROUND ×${missed10m}`, detail: `Our node was leader and its block did not make it in ${missed10m} round(s) during the last 10 min (round ended by timeout certificate)` })
+  if (rounds) {
+    // Round-level data from the bft journal: alert only on what's our fault.
+    // Timeouts/TCs caused by other leaders' misses are network noise (see net_tc).
+    if (rounds.missed10m > 0)
+      w.push({ level: 'crit', key: 'MISSED_ROUND', short: `MISSED ROUND ×${rounds.missed10m}`, detail: `Our node was leader and its block did not make it in ${rounds.missed10m} round(s) during the last 10 min (round ended by timeout certificate)` })
+    if (rounds.lateTmo10m > 0)
+      w.push({ level: 'warn', key: 'LATE', short: `LATE ×${rounds.lateTmo10m}`, detail: `Our node timed out ${rounds.lateTmo10m} round(s) in the last 10 min that the network completed normally — proposals reach us late (network/CPU)` })
+  } else {
+    // No journal data (bft not logging at DEBUG): fall back to metric deltas,
+    // which can't tell our timeouts from other leaders' misses.
+    if (dt !== null && dt > 0)
+      w.push({ level: 'warn', key: 'TMO', short: `TMO Δ${dt}`, detail: `${dt} new local timeout(s) — node failed to receive proposal in time` })
 
-  if (dt !== null && dt > 0)
-    w.push({ level: 'warn', key: 'TMO', short: `TMO Δ${dt}`, detail: `${dt} new local timeout(s) — node failed to receive proposal in time` })
-
-  if (dtc !== null && dtc > thresholds.tc_max)
-    w.push({ level: 'warn', key: 'TC', short: `TC Δ${dtc}`, detail: `${dtc} new timeout certificate(s) — round(s) completed via timeout instead of QC` })
+    if (dtc !== null && dtc > thresholds.tc_max)
+      w.push({ level: 'warn', key: 'TC', short: `TC Δ${dtc}`, detail: `${dtc} new timeout certificate(s) — round(s) completed via timeout instead of QC` })
+  }
 
   if (lagging > thresholds.lag_max)
     w.push({ level: 'warn', key: 'LAG', short: `LAG ${lagging}`, detail: `Execution behind consensus by ${lagging} blocks` })

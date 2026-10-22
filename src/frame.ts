@@ -125,7 +125,7 @@ function logLine(input: {
     `tx_commits=${m.txCommits ?? '?'}`,
     ...(d ? [
       `led24=${d.led}`, `ok24=${d.ok}`, `missed24=${d.missed}`, `failed24=${d.failed}`, `unseen24=${d.notReceived}`,
-      `blocks24=${d.committed}`, `txs24=${d.txs}`, `net_tc24=${d.netMissed}/${d.netRounds}`,
+      `blocks24=${d.committed}`, `txs24=${d.txs}`, `net_tc24=${d.netMissed}/${d.netRounds}`, `late24=${d.lateTmo}`,
     ] : []),
     `txpool=${m.txpool ?? '?'}`, `fwd=${m.fwd ?? '?'}`, `p99=${m.latP99 ?? '?'}ms`,
     `rpc=${input.rpcMs}ms`,
@@ -186,7 +186,7 @@ export function buildTickFrame(
 
   const rounds = input.rounds ?? null
   const warnings = checkWarnings(
-    input.blockDelta, dv, dt, dtc, m.syncing, execLag, exec?.p99 ?? null, rounds?.missed10m ?? null,
+    input.blockDelta, dv, dt, dtc, m.syncing, execLag, exec?.p99 ?? null, rounds,
     m.peers, m.latP99, input.rpcMs, input.thresholds,
   )
   const hasCrit = warnings.some(w => w.level === 'crit')
