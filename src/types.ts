@@ -4,7 +4,10 @@ export type Thresholds = {
   lag_max: number
   rpc_max: number
   tc_max: number
+  exec_ms_max: number
 }
+
+export type ExecStats = { count: number; p50: number; p99: number; max: number }
 
 export type Config = {
   telegram?: { token: string; chat_id: string; delay_ticks?: number; cooldown_min?: number }
@@ -12,6 +15,10 @@ export type Config = {
   log?: { file?: string; flush_sec?: number; max_size_mb?: number; keep?: number; events?: string }
   cpu?: string
   socket?: string
+  // Built-in OTLP/gRPC receiver address ('' disables it → scrape METRICS_URL).
+  otlp?: string
+  // secp_key label to attach to OTLP metrics (otelcol used to add it via config).
+  node_key?: string
 }
 
 export type Warning = { level: 'warn' | 'crit'; key: string; short: string; detail: string; notify?: string }
@@ -39,6 +46,9 @@ export type Frame = {
   execLag: number
   lagEvtDelta: number | null
   execBlock: number | null
+  // Execution latency (proposal accepted → block executed) over the last 60s,
+  // parsed from monad-execution's journal. null when no recent log lines.
+  exec: ExecStats | null
   tx: CounterCell
   txpool: number | null
   fwd: CounterCell
@@ -67,6 +77,7 @@ export type Snapshot = {
   blockDelta: number | null
   bps: string
   lag: number
+  execP99: number | null
   peers: number | null
   p99: number | null
   rpcMs: number

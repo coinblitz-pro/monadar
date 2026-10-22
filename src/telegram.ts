@@ -15,6 +15,7 @@ function fmtSnap(s: Snapshot): string {
   const lines = [
     `block  ${s.block} Δ${s.blockDelta ?? '?'} (${s.bps}/s)`,
     `lag    ${s.lag}`,
+    `exec   ${s.execP99 !== null ? `p99 ${s.execP99}ms` : '?'}`,
     `peers  ${s.peers ?? '?'}`,
     `p99    ${s.p99 ?? '?'}ms`,
     `rpc    ${s.rpcMs}ms`,
@@ -52,6 +53,7 @@ export function frameStatusMessage(f: Frame): string {
   const lines = [
     `block  ${f.block} Δ${f.blockDelta ?? '?'} (${f.bps}/s)`,
     `lag    ${f.execLag}`,
+    `exec   ${f.exec ? `p50 ${f.exec.p50}ms p99 ${f.exec.p99}ms max ${f.exec.max}ms` : '?'}`,
     `peers  ${f.peers ?? '?'}`,
     `p99    ${f.p99 ?? '?'}ms`,
     `rpc    ${f.rpcMs}ms`,

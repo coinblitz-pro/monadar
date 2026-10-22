@@ -4,7 +4,7 @@ import { buildTickFrame, createCollectorState, recordBlock } from './frame'
 import type { MetricsSnapshot } from './metric_snapshot'
 import type { Thresholds } from './types'
 
-const thresholds: Thresholds = { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0 }
+const thresholds: Thresholds = { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0, exec_ms_max: 250 }
 
 function metrics(overrides: Partial<MetricsSnapshot> = {}): MetricsSnapshot {
   return {
@@ -79,4 +79,43 @@ test('buildTickFrame fallback lag grows when block delta exceeds commit delta', 
 
   assert.equal(frame.execLag, 3)
   assert.equal(frame.bps, '5.00')
+})
+
+test('buildTickFrame prefers the execution journal over the lagging metric', () => {
+  const state = createCollectorState()
+  const sample = recordBlock(state, 110, 0)
+  const { frame, snap } = buildTickFrame(state, {
+    ts: '12:00:00',
+    block: 110,
+    blockDelta: sample.blockDelta,
+    bps: sample.bps,
+    rpcMs: 10,
+    metrics: metrics({ execBlock: 100 }),
+    thresholds,
+    exec: { stats: { count: 150, p50: 5, p99: 49, max: 136 }, lastBlock: 110 },
+  })
+
+  assert.equal(frame.execBlock, 110)
+  assert.equal(frame.execLag, 0)
+  assert.deepEqual(frame.exec, { count: 150, p50: 5, p99: 49, max: 136 })
+  assert.equal(snap.execP99, 49)
+  assert.equal(frame.status, 'ok')
+  assert.match(frame.logLine, /exec_p50=5ms exec_p99=49ms exec_max=136ms exec_n=150/)
+})
+
+test('buildTickFrame warns when execution latency p99 exceeds exec_ms_max', () => {
+  const state = createCollectorState()
+  const sample = recordBlock(state, 110, 0)
+  const { frame } = buildTickFrame(state, {
+    ts: '12:00:00',
+    block: 110,
+    blockDelta: sample.blockDelta,
+    bps: sample.bps,
+    rpcMs: 10,
+    metrics: metrics(),
+    thresholds,
+    exec: { stats: { count: 150, p50: 40, p99: 300, max: 900 }, lastBlock: 110 },
+  })
+
+  assert.deepEqual(frame.warnings.map(w => w.key), [ 'EXEC_SLOW' ])
 })

@@ -8,6 +8,7 @@ const VALUE_FLAGS = new Set([
   '--lag-max',
   '--rpc-max',
   '--tc-max',
+  '--exec-ms-max',
   '--cpu',
 ])
 
@@ -83,6 +84,7 @@ export function parseArgs(rawArgs: readonly string[]): CliArgs {
     [ 'lag_max', '--lag-max' ],
     [ 'rpc_max', '--rpc-max' ],
     [ 'tc_max', '--tc-max' ],
+    [ 'exec_ms_max', '--exec-ms-max' ],
   ]
   for (const [ key, flag ] of pairs) {
     const n = parseIntArg(findValue(raw, flag))

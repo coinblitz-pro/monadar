@@ -21,10 +21,12 @@ if (shouldInit) {
   } else {
     const template = JSON.stringify({
       telegram: { token: '', chat_id: '', delay_ticks: 3, cooldown_min: 5 },
-      thresholds: { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0 },
+      thresholds: { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0, exec_ms_max: 250 },
       log: { file: '', flush_sec: 60, max_size_mb: 50, keep: 5, events: '' },
       socket: '',
       cpu: '',
+      otlp: '127.0.0.1:4317',
+      node_key: '',
     }, null, 2)
     writeFileSync(p, template + '\n')
     console.log(`Created ${p}`)

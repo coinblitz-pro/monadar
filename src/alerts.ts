@@ -19,7 +19,7 @@ function fmtDuration(ms: number): string {
 export function checkWarnings(
   blockDelta: number | null,
   dv: number | null, dt: number | null, dtc: number | null,
-  syncing: number | null, lagging: number,
+  syncing: number | null, lagging: number, execP99: number | null,
   peers: number | null, latP99: number | null,
   rpcMs: number | null,
   thresholds: Thresholds,
@@ -43,6 +43,9 @@ export function checkWarnings(
 
   if (lagging > thresholds.lag_max)
     w.push({ level: 'warn', key: 'LAG', short: `LAG ${lagging}`, detail: `Execution behind consensus by ${lagging} blocks` })
+
+  if (execP99 !== null && execP99 > thresholds.exec_ms_max)
+    w.push({ level: 'warn', key: 'EXEC_SLOW', short: `EXEC SLOW ${execP99}ms`, detail: `Execution latency p99 is ${execP99}ms (proposal → executed, last 60s)` })
 
   if (peers !== null && peers < thresholds.peers_min)
     w.push({ level: 'warn', key: 'LOW_PEERS', short: `LOW PEERS ${peers}`, detail: `Only ${peers} peers discovered — network connectivity may be degraded` })

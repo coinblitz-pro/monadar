@@ -117,6 +117,9 @@ unit's `ExecStart`, so the daemon runs with the same configuration.
 | `--lag-max <n>` | Warn when execution lag exceeds this many blocks | `5` |
 | `--rpc-max <ms>` | Warn when RPC response time exceeds this | `200` |
 | `--tc-max <n>` | Warn when timeout-certificate delta exceeds this | `0` |
+| `--exec-ms-max <ms>` | Warn when execution latency p99 (last 60s) exceeds this | `250` |
+
+Execution latency comes from `__exec_block` lines in the `monad-execution` journal: each line has the time execution finished and `ts`, when BFT accepted the proposal. The daemon runs `journalctl -f`, so it needs root or the `systemd-journal` group. If there are no recent lines, monadar falls back to the `monad_execution_ledger_block_num` metric. That metric lags by the OTLP export interval.
 
 ## Configuration
 
@@ -125,10 +128,12 @@ unit's `ExecStart`, so the daemon runs with the same configuration.
 ```json
 {
   "telegram": { "token": "", "chat_id": "", "delay_ticks": 3, "cooldown_min": 5 },
-  "thresholds": { "peers_min": 50, "p99_max": 500, "lag_max": 5, "rpc_max": 200, "tc_max": 0 },
+  "thresholds": { "peers_min": 50, "p99_max": 500, "lag_max": 5, "rpc_max": 200, "tc_max": 0, "exec_ms_max": 250 },
   "log": { "file": "", "flush_sec": 60, "max_size_mb": 50, "keep": 5, "events": "" },
   "socket": "",
-  "cpu": ""
+  "cpu": "",
+  "otlp": "127.0.0.1:4317",
+  "node_key": ""
 }
 ```
 
@@ -139,6 +144,13 @@ unit's `ExecStart`, so the daemon runs with the same configuration.
   path of the persistent event log (defaults to `events.log` next to `file`).
 - **socket** — override the unix socket path.
 - **cpu** — `taskset` CPU list for the daemon.
+- **otlp** — address of the built-in OTLP/gRPC metrics receiver (default `127.0.0.1:4317`, the
+  same as the nodes' `--otel-endpoint`). monad-bft and monad-rpc push metrics to it directly, so
+  no OpenTelemetry Collector is needed. If the port is taken (an otelcol is still running),
+  monadar scrapes `http://localhost:8889/metrics` instead. The choice is made at startup, so
+  restart monadar after removing otelcol. Set `""` to always scrape.
+- **node_key** — `secp_key` label to report (otelcol used to add it through its `resource`
+  processor). It is the node's public secp256k1 key.
 
 ## Logging & rotation
 

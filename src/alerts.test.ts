@@ -4,7 +4,7 @@ import { createAlertProcessor } from './alerts'
 import type { HistoryEntry, Snapshot, Warning } from './types'
 
 const SNAP: Snapshot = {
-  block: 0, blockDelta: null, bps: '?', lag: 0, peers: null, p99: null,
+  block: 0, blockDelta: null, bps: '?', lag: 0, execP99: null, peers: null, p99: null,
   rpcMs: 0, syncing: null, syncPct: null, uptime: '?', ver: '?',
 }
 

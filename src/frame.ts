@@ -1,5 +1,6 @@
 import { checkWarnings } from './alerts'
 import { BUILD_VERSION } from './build'
+import type { ExecSnapshot } from './exec_log'
 import { delta, formatUptime } from './format'
 import type { MetricsSnapshot } from './metric_snapshot'
 import type { CounterCell, Frame, HistoryEntry, Snapshot, Thresholds } from './types'
@@ -98,6 +99,7 @@ function logLine(input: {
   syncPct: string | null
   execLag: number
   execBlock: number | null
+  exec: Frame['exec']
   leaderPct: string
   votedPct: number | null
   warningShorts: string[]
@@ -105,6 +107,7 @@ function logLine(input: {
   const m = input.metrics
   const warnTags = input.warningShorts.length > 0 ? ' WARN=' + input.warningShorts.join(',') : ''
   const execBlock = input.execBlock !== null ? input.execBlock : '?'
+  const e = input.exec
   const votedLog = input.votedPct !== null ? input.votedPct.toFixed(1) + '%' : '?'
   return [
     new Date().toISOString(),
@@ -115,7 +118,9 @@ function logLine(input: {
     ...(input.syncPct !== null ? [`sync_pct=${input.syncPct}%`] : []),
     `commits=${m.commits ?? '?'}`, `votes=${m.votes ?? '?'}`, `tmo=${m.timeouts ?? '?'}`, `tc=${m.tc ?? '?'}`,
     `lag=${input.execLag}`, `lag_evt=${m.lagging ?? 0}`,
-    `exec=${execBlock}`, `tx_commits=${m.txCommits ?? '?'}`,
+    `exec=${execBlock}`,
+    ...(e ? [`exec_p50=${e.p50}ms`, `exec_p99=${e.p99}ms`, `exec_max=${e.max}ms`, `exec_n=${e.count}`] : []),
+    `tx_commits=${m.txCommits ?? '?'}`,
     `txpool=${m.txpool ?? '?'}`, `fwd=${m.fwd ?? '?'}`, `p99=${m.latP99 ?? '?'}ms`,
     `rpc=${input.rpcMs}ms`,
     `key=${shortKey(m.nodeKey)}`, `net=${m.network}`,
@@ -135,6 +140,7 @@ export function buildTickFrame(
     rpcMs: number
     metrics: MetricsSnapshot
     thresholds: Thresholds
+    exec?: ExecSnapshot
   },
 ): BuiltFrame {
   const m = input.metrics
@@ -151,7 +157,11 @@ export function buildTickFrame(
   const dl = delta(m.lagging, state.prevLagging)
   const dc = delta(m.commits, state.prevCommits)
 
-  const execBlock = m.execBlock !== null ? Math.round(m.execBlock) : null
+  // Prefer the execution journal: it's real-time, whereas the metric lags by
+  // the OTLP export interval (~2-3 blocks at 0.4s/block).
+  const exec = input.exec?.stats ?? null
+  const logBlock = input.exec?.lastBlock ?? null
+  const execBlock = logBlock ?? (m.execBlock !== null ? Math.round(m.execBlock) : null)
   let execLag: number
   if (execBlock !== null) {
     execLag = Math.max(0, input.block - execBlock)
@@ -167,7 +177,7 @@ export function buildTickFrame(
     syncPct = ((m.syncProgress / m.syncTarget) * 100).toFixed(2)
   }
 
-  const warnings = checkWarnings(input.blockDelta, dv, dt, dtc, m.syncing, execLag, m.peers, m.latP99, input.rpcMs, input.thresholds)
+  const warnings = checkWarnings(input.blockDelta, dv, dt, dtc, m.syncing, execLag, exec?.p99 ?? null, m.peers, m.latP99, input.rpcMs, input.thresholds)
   const hasCrit = warnings.some(w => w.level === 'crit')
   const hasWarn = warnings.some(w => w.level === 'warn')
 
@@ -176,6 +186,7 @@ export function buildTickFrame(
     blockDelta: input.blockDelta,
     bps: input.bps,
     lag: execLag,
+    execP99: exec?.p99 ?? null,
     peers: m.peers,
     p99: m.latP99,
     rpcMs: input.rpcMs,
@@ -211,6 +222,7 @@ export function buildTickFrame(
     execLag,
     lagEvtDelta: dl,
     execBlock,
+    exec,
     tx: counter(m.txCommits, state.prevTxCommits),
     txpool: m.txpool,
     fwd: counter(m.fwd, state.prevFwd),
@@ -235,6 +247,7 @@ export function buildTickFrame(
       syncPct,
       execLag,
       execBlock,
+      exec,
       leaderPct,
       votedPct,
       warningShorts: warnings.map(w => w.short),
@@ -279,6 +292,7 @@ export function errorFrame(
     execLag: 0,
     lagEvtDelta: null,
     execBlock: null,
+    exec: null,
     tx: z(),
     txpool: null,
     fwd: z(),

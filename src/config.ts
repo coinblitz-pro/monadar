@@ -12,7 +12,7 @@ export const bell = cliArgs.bell
 export const shouldInit = cliArgs.shouldInit
 export const interval = cliArgs.intervalSec * 1000
 
-export const DEFAULT_THRESHOLDS: Thresholds = { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0 }
+export const DEFAULT_THRESHOLDS: Thresholds = { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0, exec_ms_max: 250 }
 
 export function loadConfig(configPath: string | null, entrypoint: string): Config {
   const p = configPath ?? resolve(dirname(entrypoint), 'monadar.config.json')
@@ -25,6 +25,8 @@ export function loadConfig(configPath: string | null, entrypoint: string): Confi
       log: json.log,
       cpu: json.cpu != null ? String(json.cpu) : undefined,
       socket: json.socket || undefined,
+      otlp: json.otlp != null ? String(json.otlp) : undefined,
+      node_key: json.node_key || undefined,
     }
   } catch {
     return { thresholds: { ...DEFAULT_THRESHOLDS } }
@@ -34,6 +36,10 @@ export function loadConfig(configPath: string | null, entrypoint: string): Confi
 export const config = loadConfig(cliArgs.configPath, process.argv[1])
 export const socket = cliArgs.socket || config.socket || null
 export const cpu = cliArgs.cpu ?? config.cpu ?? null
+// Where monad-bft/monad-rpc push OTLP (their --otel-endpoint). If the port is
+// taken (an otelcol is running) the collector falls back to METRICS_URL.
+export const otlpListen = config.otlp ?? '127.0.0.1:4317'
+export const nodeKey = config.node_key ?? null
 
 export const thresholds = {
   peers_min: cliArgs.thresholdOverrides.peers_min ?? config.thresholds.peers_min,
@@ -41,6 +47,7 @@ export const thresholds = {
   lag_max: cliArgs.thresholdOverrides.lag_max ?? config.thresholds.lag_max,
   rpc_max: cliArgs.thresholdOverrides.rpc_max ?? config.thresholds.rpc_max,
   tc_max: cliArgs.thresholdOverrides.tc_max ?? config.thresholds.tc_max,
+  exec_ms_max: cliArgs.thresholdOverrides.exec_ms_max ?? config.thresholds.exec_ms_max,
 }
 
 export const logFile = cliArgs.logFile || config.log?.file || null

@@ -57,9 +57,18 @@ export function applyFrame(f: Frame) {
     ? c.yellow(`Δ${f.lagEvtDelta}`)
     : `Δ${f.lagEvtDelta !== null ? f.lagEvtDelta : '-'}`
 
-  const execLagVal = f.execLag > thresholds.lag_max
-    ? c.yellow(String(f.execLag))
-    : String(f.execLag)
+  // Prefer journal-based execution latency (p50/p99 ms); fall back to the
+  // metric-based block lag when it's unavailable (or the daemon is older).
+  const exec = f.exec ?? null
+  let execLagVal: string
+  if (exec) {
+    const ms = `${exec.p50}/${exec.p99}ms`
+    execLagVal = exec.p99 > thresholds.exec_ms_max ? c.yellow(ms) : ms
+  } else {
+    execLagVal = f.execLag > thresholds.lag_max
+      ? c.yellow(String(f.execLag))
+      : String(f.execLag)
+  }
 
   const peersVal = f.peers !== null && f.peers < thresholds.peers_min
     ? c.yellow(String(f.peers))
@@ -161,7 +170,7 @@ function renderHelp(): string {
   out += h('ver', 'node software version', 'votes', 'votes created by this node')
   out += h('up', 'node uptime', 'tmo', 'local timeouts (growth = problem)')
   out += h('sync', 'state sync (no = fully synced)', 'tc', 'timeout certificates')
-  out += h('peers', 'discovered peers', 'lag', 'exec lag (blocks behind consensus)')
+  out += h('peers', 'discovered peers', 'lag', 'exec latency p50/p99 ms, last 60s')
   out += h('sessions', 'wireauth encrypted sessions', 'lag_evt', 'execution lagging events delta')
   out += h('exec', 'execution ledger block (+diff)', 'key', 'validator secp256k1 public key')
   out += h('tx', 'transactions committed', 'net', 'network name')
