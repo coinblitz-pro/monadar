@@ -114,12 +114,12 @@ pub async fn send_samples() -> Result<(), String> {
         "intro",
         Msg(vec![Block::Para(vec![b("monadar telegram-test"), p(": sample messages follow, these are not real alerts.")])]),
     )];
-    let not_voting = "Node is not creating votes while blocks advance — consensus participation lost";
+    let not_voting = "No votes for 7s while 18 blocks advanced: consensus participation lost";
     msgs.push((
         "alert",
         notice_message(&pending(notice("NOT_VOTING", NoticeKind::Fired, "NOT VOTING", not_voting, now - 4_000, None), None), now),
     ));
-    let stuck = "Block number has not advanced for 5s — node may be stuck or disconnected";
+    let stuck = "Block number has not advanced for 5s: node may be stuck or disconnected";
     msgs.push((
         "alert resolved while queued",
         notice_message(&pending(notice("STUCK", NoticeKind::Fired, "STUCK", stuck, now - 140_000, None), Some(now - 6_000)), now),

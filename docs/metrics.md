@@ -1,10 +1,16 @@
 # Monad Node Metrics Reference
 
-Endpoint: `http://localhost:8889/metrics` (Prometheus text format)
+monad-bft and monad-rpc push metrics over OTLP/gRPC to `--otel-endpoint` every
+`--record-metrics-interval-seconds` (1 s on our node). By default monadar receives them itself
+on `127.0.0.1:4317`. The older setup runs an OpenTelemetry Collector there and exposes them at
+`http://localhost:8889/metrics` in Prometheus text format; monadar can scrape that instead.
 
 All BFT/consensus metrics are declared as `gauge` but most are monotonic counters (u64) that only increment. They reset to 0 on node restart.
 
-Each metric line includes labels: `job`, `network`, `secp_key`, `service_name`, `service_version` and a Unix timestamp in ms.
+Labels come from the OTLP resource: `service_name`, `service_version`, `network`. The collector's
+Prometheus exporter adds `job` (= `service_name`), and its `resource` processor was configured to
+add `secp_key`; monadar's receiver adds both the same way (`secp_key` from `node_key` in its
+config). Below, names are given in the Prometheus form (dots replaced by underscores).
 
 ---
 
@@ -85,7 +91,7 @@ Each metric line includes labels: `job`, `network`, `secp_key`, `service_name`, 
 
 | Metric | Description |
 |--------|-------------|
-| `monad_execution_ledger_block_num` | Current execution block number (scientific notation, e.g. `5.9422302e+07`) |
+| `monad_execution_ledger_block_num` | Current execution block number, a true gauge (the collector prints it in scientific notation, e.g. `5.9422302e+07`). Trails the execution journal by up to the export interval. |
 | `monad_execution_ledger_num_commits` | Number of ledger commits |
 | `monad_execution_ledger_num_tx_commits` | Number of transaction commits |
 
@@ -288,7 +294,7 @@ These are standard Prometheus histograms with `_bucket`, `_sum`, `_count` suffix
 
 ### Observed RPC methods
 
-- `eth_blockNumber` — most frequent (monitoring polls)
+- `eth_blockNumber`: most frequent (monitoring polls)
 - `eth_chainId`
 - `eth_call`
 - `eth_getBalance`
@@ -297,7 +303,7 @@ These are standard Prometheus histograms with `_bucket`, `_sum`, `_count` suffix
 
 ### RPC notes
 
-- `monad_rpc_active_requests` has many `server_address` entries — these are remote IPs that have connected to the node's RPC port, including scanners and bots
+- `monad_rpc_active_requests` has many `server_address` entries: these are remote IPs that have connected to the node's RPC port, including scanners and bots
 - Response codes 404 and 405 from external IPs are typically port scanners hitting the RPC port
 - The `type="wait"` histogram tracks queue wait time before execution; `type="total"` includes both wait and execution
 
@@ -314,14 +320,14 @@ journalctl -fu monad-ledger-tail
 
 Two event types:
 
-**`proposed_block`** — block proposed by consensus leader:
+**`proposed_block`**: block proposed by consensus leader:
 ```json
 {"message":"proposed_block", "round":"59510580", "parent_round":"59510579",
  "epoch":"1189", "seq_num":"59426425", "num_tx":"5",
  "author":"02ae...", "block_ts_ms":"1772715239361", "now_ts_ms":"1772715239421"}
 ```
 
-**`finalized_block`** — block finalized (2 rounds after proposal):
+**`finalized_block`**: block finalized (2 rounds after proposal):
 ```json
 {"message":"finalized_block", "round":"59510579", "epoch":"1189",
  "seq_num":"59426424", "author":"0256...",
@@ -365,11 +371,20 @@ Returns actual peer info (alternative to `monad_peer_disc_num_peers` metric).
 journalctl -u monad-bft -f
 ```
 
-Key parseable messages (JSON via journald):
-- `"committed block"` (INFO, target: `monad_ledger`) — `num_tx`, `block_num`
-- `"proposal stats"` (DEBUG, target: `monad_eth_block_validator`) — `total_gas`, `proposal_size`, `txs`
-- `"network has different vote/proposal pacing"` (WARN) — node falling behind
-- `"no eth_header found, can't propose"` (WARN) — execution lagging event
+Key parseable messages (JSON via journald). monadar uses the first eight; most are DEBUG, so
+leader-round data needs bft at DEBUG (see [rounds.md](rounds.md)):
+- `"leader for round"`: `round`, `round_leader: "Some(<secp key>)"`
+- `"proposal message"`: `author`, `proposal` (text with `proposal_round` and `seq_num`)
+- `"advancing round"`: `certificate`: `Qc(...)` or `Tc(TimeoutCertificate { epoch, round, ...`
+- `"committed block"` (INFO, target: `monad_ledger`): `num_tx`, `block_num`
+- `"local timeout"`: `round`, `leader`: our pacemaker gave up on the round
+- `"proposal stats"` (DEBUG, target: `monad_eth_block_validator`): `total_gas`, `proposal_size`, `txs`
+- `"txpool executor received forwarded txs"`: `sender`, `num_txs`
+- `"emitting create proposal command to txpool"`: `node_id`; only our own node logs it
+- `"network has different vote/proposal pacing"` (WARN): node falling behind
+- `"no eth_header found, can't propose"` (WARN): execution lagging event
+
+journald delivers these lines about 0.2 s after RPC already shows the new block.
 
 ### Execution logs (journalctl)
 
@@ -378,7 +393,8 @@ journalctl -u monad-execution -f
 ```
 
 Quill text format. Key parseable line: `__exec_block` with fields:
-`bl` (block number), `tx` (tx count), `rt` (retries), `rtp` (retry %),
+`bl` (block number), `id` (block hash), `ts` (ms, when BFT accepted the proposal; the line's own
+timestamp minus `ts` is the execution latency monadar shows), `tx` (tx count), `rt` (retries), `rtp` (retry %),
 `sr` (sender recovery us), `txe` (tx exec us), `cmt` (commit us), `tot` (total us),
 `tpse` (TPS exec), `tps` (TPS overall), `gas` (gas used), `gpse` (GPS exec), `gps` (GPS overall)
 
@@ -405,7 +421,7 @@ Requires `monad` user in `systemd-journal` group.
 | `monad-rpc` | JSON-RPC server (port 8080) |
 | `monad-ledger-tail` | Ledger event stream |
 | `monad-cruft` | Periodic maintenance |
-| `otelcol` | OpenTelemetry collector |
+| `otelcol` | OpenTelemetry Collector (not needed with monadar's built-in OTLP receiver) |
 
 ### RaptorCast (full node block delivery)
 
@@ -419,22 +435,32 @@ Expected bandwidth at 10k TPS: ~6 MB/s (3 MB block data × 2x redundancy)
 
 ---
 
-## Metrics used by monad-status
+## Metrics used by monadar
 
-| Display field | Metric | Notes |
+| Display field | Source | Notes |
 |--------------|--------|-------|
-| block | `eth_blockNumber` (via RPC) | Not from metrics endpoint |
+| block | `eth_blockNumber` (RPC) | Newest proposed block, ahead of execution |
 | ver | `monad_node_info` label `service_version` | |
-| up | `monad_total_uptime_us` | |
+| up | `monad_total_uptime_us` | A drop means the node restarted |
 | peers | `monad_peer_disc_num_peers` | |
-| stake | `monad_state_node_state_self_stake_bps` | Divided by 100 for % |
 | sessions | `monad_wireauth_udp_state_total_sessions` | |
-| sync | `monad_statesync_syncing` | |
+| stake | `monad_state_node_state_self_stake_bps` | Divided by 100 for % |
+| sync | `monad_statesync_syncing` | Progress: `monad_statesync_progress_estimate / monad_statesync_last_target` |
 | commits | `monad_state_consensus_events_commit_block` | Delta shown |
 | votes | `monad_state_consensus_events_created_vote` | Delta shown |
 | tmo | `monad_state_consensus_events_local_timeout` | Delta shown |
-| lag | Computed: `max(0, execLag + commits_delta - block_delta)` | Real execution lag |
+| tc | `monad_state_consensus_events_created_tc` | Delta shown |
+| lag | `__exec_block` lines (execution journal) | Execution latency p50/p99 over 60 s. Without the journal: blocks behind, `block − exec` |
 | lag_evt | `monad_state_consensus_events_rx_execution_lagging` | Delta of monotonic counter |
+| exec | `__exec_block` `bl`, else `monad_execution_ledger_block_num` | Executed block, diff to `block` |
+| tx | `monad_execution_ledger_num_tx_commits` | Delta shown |
 | txpool | `monad_bft_txpool_pool_tracked_txs` | |
 | fwd | `monad_bft_txpool_pool_insert_forwarded_txs` | Delta shown |
 | p99 | `monad_bft_raptorcast_udp_primary_broadcast_latency_p99_ms` | |
+| rpc | `eth_blockNumber` response time | |
+| key | `node_key` config, else the bft journal, else label `secp_key` | |
+| net | `monad_node_info` label `network` | |
+| prop | `monad_state_consensus_events_creating_proposal` | Delta shown |
+| leader | `creating_proposal / handle_proposal` | Our share of proposals |
+| voted | `created_vote / handle_proposal` | |
+| rounds row | bft journal | See [rounds.md](rounds.md) |

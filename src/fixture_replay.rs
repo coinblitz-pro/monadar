@@ -122,5 +122,5 @@ fn fixture_replay_matches_ts_reference() {
         });
         assert_same(&format!("metrics_snapshot({name})"), &got, &expected["metrics_snapshot"]);
     }
-    eprintln!("fixture replay: bft {kinds:?}, exec {} blocks, otlp {} messages — all match", samples.len(), index.len());
+    eprintln!("fixture replay: bft {kinds:?}, exec {} blocks, otlp {} messages: all match", samples.len(), index.len());
 }

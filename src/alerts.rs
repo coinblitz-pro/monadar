@@ -125,12 +125,12 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
     let mut w = Vec::new();
 
     w.push(match i.rpc {
-        None => warning(Level::Crit, "RPC_DOWN", "RPC DOWN".into(), "RPC endpoint not responding — node may be down or unreachable".into()),
+        None => warning(Level::Crit, "RPC_DOWN", "RPC DOWN".into(), "RPC endpoint not responding: node may be down or unreachable".into()),
         Some(_) => Check::Clear("RPC_DOWN"),
     });
     w.push(match (i.rpc, i.metrics) {
         (Some(_), MetricsState::Down) => {
-            warning(Level::Warn, "METRICS_DOWN", "METRICS DOWN".into(), "Metrics endpoint unavailable — node process may be down".into())
+            warning(Level::Warn, "METRICS_DOWN", "METRICS DOWN".into(), "Metrics endpoint unavailable: node process may be down".into())
         }
         (Some(_), MetricsState::Up(_)) => Check::Clear("METRICS_DOWN"),
         _ => Check::Unknown("METRICS_DOWN"),
@@ -153,7 +153,7 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
                 Level::Crit,
                 "STUCK",
                 "STUCK".into(),
-                format!("Block number has not advanced for {}s — node may be stuck or disconnected", js_round(ms / 1000.0)),
+                format!("Block number has not advanced for {}s: node may be stuck or disconnected", js_round(ms / 1000.0)),
             )
         },
     ));
@@ -169,7 +169,7 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
                 Level::Crit,
                 "NOT_VOTING",
                 "NOT VOTING".into(),
-                format!("No votes for {} while {} blocks advanced — consensus participation lost", fmt_duration(s.ms), s.blocks),
+                format!("No votes for {} while {} blocks advanced: consensus participation lost", fmt_duration(s.ms), s.blocks),
             )
         },
     ));
@@ -190,7 +190,7 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
             Level::Warn,
             "LATE",
             format!("LATE ×{n}"),
-            format!("Our node timed out {n} round(s) in the last 10 min that the network completed normally — proposals reach us late (network/CPU)"),
+            format!("Our node timed out {n} round(s) in the last 10 min that the network completed normally: proposals reach us late (network/CPU)"),
         )
     }));
 
@@ -228,7 +228,7 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
         |d| d > 0.0,
         |d| {
             let d = num(d);
-            warning(Level::Warn, "TMO", format!("TMO Δ{d}"), format!("{d} new local timeout(s) — node failed to receive proposal in time"))
+            warning(Level::Warn, "TMO", format!("TMO Δ{d}"), format!("{d} new local timeout(s): node failed to receive proposal in time"))
         },
     ));
     w.push(rule(
@@ -241,7 +241,7 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
                 Level::Warn,
                 "TC",
                 format!("TC Δ{d}"),
-                format!("{d} new timeout certificate(s) — round(s) completed via timeout instead of QC"),
+                format!("{d} new timeout certificate(s): round(s) completed via timeout instead of QC"),
             )
         },
     ));
@@ -275,7 +275,7 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
                 Level::Warn,
                 "LOW_PEERS",
                 format!("LOW PEERS {p}"),
-                format!("Only {p} peers discovered — network connectivity may be degraded"),
+                format!("Only {p} peers discovered: network connectivity may be degraded"),
             )
         },
     ));
@@ -285,19 +285,14 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
         |l| l > t.p99_max,
         |l| {
             let l = num(l);
-            warning(
-                Level::Warn,
-                "HIGH_P99",
-                format!("HIGH P99 {l}ms"),
-                format!("Broadcast latency p99 is {l}ms — may miss round deadlines"),
-            )
+            warning(Level::Warn, "HIGH_P99", format!("HIGH P99 {l}ms"), format!("Broadcast latency p99 is {l}ms: may miss round deadlines"))
         },
     ));
     w.push(rule(
         "SLOW_RPC",
         i.rpc.map(|r| r.rpc_ms as f64),
         |ms| ms > t.rpc_max,
-        |ms| warning(Level::Warn, "SLOW_RPC", format!("SLOW RPC {ms}ms"), format!("RPC response took {ms}ms — node may be overloaded")),
+        |ms| warning(Level::Warn, "SLOW_RPC", format!("SLOW RPC {ms}ms"), format!("RPC response took {ms}ms: node may be overloaded")),
     ));
 
     // The bft journal fed us before and went quiet: round tracking is blind.
@@ -308,7 +303,7 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
             "BFT_LOG_SILENT",
             "BFT LOG SILENT".into(),
             format!(
-                "No monad-bft journal lines for {} — round tracking is blind (journalctl stopped, no journal access, or bft no longer logs at DEBUG)",
+                "No monad-bft journal lines for {}: round tracking is blind (journalctl stopped, no journal access, or bft no longer logs at DEBUG)",
                 fmt_duration(ms as i64)
             ),
         )

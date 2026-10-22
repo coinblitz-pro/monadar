@@ -281,7 +281,7 @@ fn render_events() -> String {
     let all = load_events(available_rows());
     let mut out = format!("{EOL}\n{}  {}{EOL}\n{EOL}\n", cyan("▌ Events"), dim("(newest at bottom)"));
     if all.is_empty() {
-        out += &format!("{}{EOL}\n", dim("(no events recorded — set log.file or log.events to persist)"));
+        out += &format!("{}{EOL}\n", dim("(no events recorded: set log.file or log.events to persist)"));
     }
     for e in &all {
         let when = format!("{} {}", e.at.get(5..10).unwrap_or(""), e.at.get(11..19).unwrap_or(""));

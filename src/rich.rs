@@ -188,7 +188,7 @@ mod tests {
             Block::Heading(vec![p("🚨 NOT VOTING")], 2),
             Block::Para(vec![p("Lasted "), b("6s"), p(" <x>")]),
             Block::Table(TableKind::KeyValue, vec![vec![vec![p("Block")], vec![p("115576180")]], vec![vec![p("Peers")], vec![p("214")]]]),
-            Block::List(vec![vec![code("/status"), p(" — node status")]]),
+            Block::List(vec![vec![code("/status"), p(": node status")]]),
             Block::Footer(vec![p("monad-mn · 11:27:03")]),
         ])
     }
@@ -212,7 +212,7 @@ mod tests {
     fn renders_the_html_fallback() {
         assert_eq!(
             sample().html(),
-            "<b>🚨 NOT VOTING</b>\nLasted <b>6s</b> &lt;x&gt;\n<pre>Block  115576180\nPeers  214</pre>\n• <code>/status</code> — node status\n<i>monad-mn · 11:27:03</i>"
+            "<b>🚨 NOT VOTING</b>\nLasted <b>6s</b> &lt;x&gt;\n<pre>Block  115576180\nPeers  214</pre>\n• <code>/status</code>: node status\n<i>monad-mn · 11:27:03</i>"
         );
     }
 }

@@ -149,11 +149,11 @@ fn status_title(s: Status) -> &'static str {
 }
 
 fn pct(n: u64, of: u64) -> String {
-    if of == 0 { "—".into() } else { format!("{:.2}%", n as f64 / of as f64 * 100.0) }
+    if of == 0 { "-".into() } else { format!("{:.2}%", n as f64 / of as f64 * 100.0) }
 }
 
 fn rounds_grid(r: &RoundSummary) -> Block {
-    let size = |a: &RoundAgg| size_ratio(a).map(|x| format!("{}%", js_round(x * 100.0))).unwrap_or("—".into());
+    let size = |a: &RoundAgg| size_ratio(a).map(|x| format!("{}%", js_round(x * 100.0))).unwrap_or("-".into());
     let rows: Vec<(&str, String, String)> = vec![
         ("Led", r.h1.led.to_string(), r.h24.led.to_string()),
         ("Proposed OK", r.h1.ok.to_string(), r.h24.ok.to_string()),
@@ -184,7 +184,7 @@ pub fn status_message(f: &Frame) -> Msg {
     };
     m.push(Block::Heading(vec![p(title)], 2));
     if !f.warnings.is_empty() {
-        m.push(Block::List(f.warnings.iter().map(|w| vec![b(&w.short), p(format!(" — {}", w.detail))]).collect()));
+        m.push(Block::List(f.warnings.iter().map(|w| vec![b(&w.short), p(format!(": {}", w.detail))]).collect()));
     }
     if f.error == Some(FrameError::Rpc) {
         m.push(footer(&f.ts));
@@ -268,7 +268,7 @@ pub fn events_message(f: &Frame) -> Msg {
 }
 
 pub fn help_message() -> Msg {
-    let cmd = |c: &str, what: &str| -> Text { vec![code(c), p(format!(" — {what}"))] };
+    let cmd = |c: &str, what: &str| -> Text { vec![code(c), p(format!(": {what}"))] };
     Msg(vec![
         Block::Heading(vec![p("monadar bot")], 3),
         Block::List(vec![
@@ -280,7 +280,7 @@ pub fn help_message() -> Msg {
 }
 
 pub fn no_data_message() -> Msg {
-    Msg(vec![Block::Para(vec![i("No data yet — the daemon is still starting.")])])
+    Msg(vec![Block::Para(vec![i("No data yet: the daemon is still starting.")])])
 }
 
 // Rich messages until Telegram rejects one (an older Bot API server behind

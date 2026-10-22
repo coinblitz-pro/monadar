@@ -143,11 +143,11 @@ pub fn status() {
     let path = socket_path();
     match UnixStream::connect(&path) {
         Ok(_) => {
-            println!("{} — daemon listening on {path}", green("● running"));
+            println!("{}: daemon listening on {path}", green("● running"));
             std::process::exit(0);
         }
         Err(_) => {
-            println!("{} — no daemon at {path}", red("● stopped"));
+            println!("{}: no daemon at {path}", red("● stopped"));
             std::process::exit(1);
         }
     }
