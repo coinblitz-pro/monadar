@@ -224,6 +224,7 @@ pub fn status_message(f: &Frame) -> Msg {
         "Votes",
         vec![
             ("Voted, 10 min".into(), f.voted_pct.map(|v| format!("{v:.1}%")).unwrap_or("?".into())),
+            ("Votes/s".into(), f.votes_per_sec.map(|v| format!("{v:.2}")).unwrap_or("?".into())),
             ("Local timeouts, 10 min".into(), opt(f.timeouts_10m)),
         ],
     );

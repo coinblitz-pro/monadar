@@ -256,9 +256,11 @@ pub struct Frame {
     // Our leader rounds and network round stats (ledger-tail, bft journal).
     pub rounds: Option<RoundSummary>,
     pub tx: CounterCell,
-    // Transactions per second over the last 30s.
+    // Transactions and our votes per second over the last 30s.
     #[serde(default)]
     pub tps: Option<f64>,
+    #[serde(default)]
+    pub votes_per_sec: Option<f64>,
     pub txpool: Option<f64>,
     // Largest txpool size seen in the last 10 minutes: the pool drains within a
     // second (any leader's block removes its txs), so the current value is

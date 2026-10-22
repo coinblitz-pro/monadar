@@ -458,7 +458,7 @@ their per-second deltas are 0 on almost every tick.
 | tps | `monad_execution_ledger_num_tx_commits` | Transactions per second over 30 s |
 | sync | `monad_statesync_syncing` | Shown only while syncing. Once a node is live it cannot return to statesync (monad-statesync), so this matters at boot |
 | voted | `created_vote / handle_proposal` | Over the last 10 min. A lifetime ratio barely moves after days of uptime |
-| votes | `monad_state_consensus_events_created_vote` | Delta per tick; `NOT VOTING` watches it |
+| votes | `monad_state_consensus_events_created_vote` | Per second over 30 s; one vote per block, so it matches the block rate. `NOT VOTING` watches the counter |
 | tmo | `monad_state_consensus_events_local_timeout` | Last 10 min. Most follow other leaders' misses; `LATE` separates ours |
 | leader row | ledger-tail, bft journal | See [rounds.md](rounds.md). Without round data: `prop` (`creating_proposal`) and our share of proposals |
 | peers | `monad_peer_disc_num_peers` | |

@@ -17,6 +17,25 @@ const MIN_VOTED_SAMPLE: f64 = 150.0;
 // Normal distance from the proposed head to the finalized block.
 const FINALIZED_BEHIND: i64 = 2;
 
+// Per-second rate of a counter over the last RATE_WINDOW ticks.
+#[derive(Default)]
+struct Rate(VecDeque<(i64, f64)>);
+
+impl Rate {
+    fn push(&mut self, t: i64, v: Option<f64>) -> Option<f64> {
+        if let Some(v) = v {
+            self.0.push_back((t, v));
+            if self.0.len() > RATE_WINDOW {
+                self.0.pop_front();
+            }
+        }
+        match (self.0.front(), self.0.back()) {
+            (Some((t0, a)), Some((t1, b))) if t1 > t0 => Some((b - a) / ((t1 - t0) as f64 / 1000.0)),
+            _ => None,
+        }
+    }
+}
+
 // A node counter sampled once a minute for a day, for counts over 10 min / 1 h
 // / 24 h. Kept in memory, so the longer windows fill up after a monadar restart.
 #[derive(Default)]
@@ -66,9 +85,10 @@ pub struct CollectorState {
     exec_lag: i64,
     block_samples: VecDeque<(i64, i64)>, // (time ms, block)
     last_advance_ms: Option<i64>,
-    last_vote: Option<(i64, i64)>,    // (time ms, block) when votes last grew
-    txpool: VecDeque<(i64, f64)>,     // (time ms, size), last TXPOOL_WINDOW_MS
-    tx_samples: VecDeque<(i64, f64)>, // (time ms, tx commits), last RATE_WINDOW ticks
+    last_vote: Option<(i64, i64)>, // (time ms, block) when votes last grew
+    txpool: VecDeque<(i64, f64)>,  // (time ms, size), last TXPOOL_WINDOW_MS
+    tx_rate: Rate,
+    vote_rate: Rate,
     timeouts_hist: CounterHistory,
     tc_hist: CounterHistory,
     fwd_hist: CounterHistory,
@@ -162,7 +182,8 @@ impl CollectorState {
         self.prev_proposals = None;
         self.prev_fwd = None;
         self.last_vote = None;
-        self.tx_samples.clear();
+        self.tx_rate = Rate::default();
+        self.vote_rate = Rate::default();
         for h in [&mut self.timeouts_hist, &mut self.tc_hist, &mut self.fwd_hist, &mut self.votes_hist, &mut self.handled_hist] {
             h.clear();
         }
@@ -295,16 +316,9 @@ pub fn build_tick_frame(state: &mut CollectorState, input: TickInput) -> BuiltFr
         (Some(v), Some(h)) if h >= MIN_VOTED_SAMPLE => Some((v / h * 100.0).min(100.0)),
         _ => None,
     };
-    if let Some(n) = m.tx_commits {
-        state.tx_samples.push_back((now, n));
-        if state.tx_samples.len() > RATE_WINDOW {
-            state.tx_samples.pop_front();
-        }
-    }
-    let tps = match (state.tx_samples.front(), state.tx_samples.back()) {
-        (Some((t0, a)), Some((t1, b))) if t1 > t0 => Some((b - a) / ((t1 - t0) as f64 / 1000.0)),
-        _ => None,
-    };
+    let tps = state.tx_rate.push(now, m.tx_commits);
+    // One vote per block: in health this matches the block rate.
+    let votes_per_sec = state.vote_rate.push(now, m.votes);
 
     let dv = delta(m.votes, state.prev_votes);
     if m.votes.is_some() && (dv != Some(0.0) || state.last_vote.is_none()) {
@@ -418,6 +432,7 @@ pub fn build_tick_frame(state: &mut CollectorState, input: TickInput) -> BuiltFr
         rounds,
         tx: counter(m.tx_commits, state.prev_tx_commits),
         tps,
+        votes_per_sec,
         txpool: m.txpool,
         txpool_max,
         fwd: counter(m.fwd, state.prev_fwd),
@@ -477,6 +492,7 @@ pub fn error_frame(ts: String, history: Vec<HistoryEntry>, error: FrameError, bl
         rounds: None,
         tx: CounterCell::default(),
         tps: None,
+        votes_per_sec: None,
         txpool: None,
         txpool_max: None,
         fwd: CounterCell::default(),

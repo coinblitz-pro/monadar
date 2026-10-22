@@ -14,7 +14,7 @@ monadar  21:50:13  035c51..6d4d · mainnet · 0.16.5 · up 10h23m · stake 0.35%
 
 ╭─ chain ─────────────────╮ ╭─ votes ───────────╮ ╭─ leader · 24h ──╮ ╭─ network ───────────╮ ╭─ mempool ───────╮
 │ block    115699304 Δ3   │ │ voted  100.0% 10m │ │ led     499     │ │ peers     207       │ │ txpool  0       │
-│ rate     3.31 blocks/s  │ │ votes  Δ3         │ │ led 1h  45      │ │ sessions  209       │ │ max     42 10m  │
+│ rate     3.31 blocks/s  │ │ votes  3.31 /s    │ │ led 1h  45      │ │ sessions  209       │ │ max     42 10m  │
 │ exec     115699304 (+0) │ │ tmo    0 10m      │ │ missed  0       │ │ tc        0 10m     │ │ fwd     480 10m │
 │ exec_ms  6/29ms         │ │                   │ │ txs     8874    │ │ delay     33/188ms  │ │                 │
 │ tps      64             │ │                   │ │ size    99% net │ │ final     622/760ms │ │                 │

@@ -185,8 +185,8 @@ pub fn frame_body(f: &Frame) -> String {
         }
         None => "?".into(),
     };
-    // The lifetime counter says nothing; the per-tick growth does.
-    let votes_val = format!("Δ{}", f.votes.delta.map(num).unwrap_or("-".into()));
+    // One vote per block, so in health this matches the block rate.
+    let votes_val = f.votes_per_sec.map(|v| format!("{v:.2} {}", dim("/s"))).unwrap_or("?".into());
     let votes_val = if firing("NOT_VOTING") { red(&votes_val) } else { votes_val };
     let tmo_val = windowed(f.timeouts_10m, "10m");
     let tmo_val = if firing("LATE") || firing("TMO") { yellow(&tmo_val) } else { tmo_val };
@@ -286,7 +286,7 @@ fn render_help() -> String {
     out += &h("  tps", "transactions per second, last 30s");
     out += &h("votes", "are we voting");
     out += &h("  voted", "votes created per proposal handled, last 10 min");
-    out += &h("  votes", "votes created this tick");
+    out += &h("  votes", "votes we create per second, last 30 samples; matches the block rate when healthy");
     out += &h("  tmo", "our local round timeouts, last 10 min (most follow other leaders' misses)");
     out += &h("leader", "our leader rounds over 24h (ledger-tail, or bft at DEBUG)");
     out += &h("  led", "rounds we led; led 1h = over the last hour");

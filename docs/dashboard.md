@@ -5,7 +5,7 @@ monadar  21:50:13  035c51..6d4d · mainnet · 0.16.5 · up 10h23m · stake 0.35%
 
 ╭─ chain ─────────────────╮ ╭─ votes ───────────╮ ╭─ leader · 24h ──╮ ╭─ network ───────────╮ ╭─ mempool ───────╮
 │ block    115699304 Δ3   │ │ voted  100.0% 10m │ │ led     499     │ │ peers     207       │ │ txpool  0       │
-│ rate     3.31 blocks/s  │ │ votes  Δ3         │ │ led 1h  45      │ │ sessions  209       │ │ max     42 10m  │
+│ rate     3.31 blocks/s  │ │ votes  3.31 /s    │ │ led 1h  45      │ │ sessions  209       │ │ max     42 10m  │
 │ exec     115699304 (+0) │ │ tmo    0 10m      │ │ missed  0       │ │ tc        0 10m     │ │ fwd     480 10m │
 │ exec_ms  6/29ms         │ │                   │ │ txs     8874    │ │ delay     33/188ms  │ │                 │
 │ tps      64             │ │                   │ │ size    99% net │ │ final     622/760ms │ │                 │
@@ -28,8 +28,8 @@ terminal. Values turn yellow on a warning threshold and red on a critical condit
   (executed block and its diff to `block`; `finalized` when it comes from the metric
   fallback), `exec_ms` (block execution time p50/p99, 60 s), `tps`. `sync` appears only while
   the node state-syncs, `rpc` only when it is slow.
-- **votes**: are we voting. `voted` (votes per proposal handled, 10 min), `votes` (created
-  this tick), `tmo` (our local timeouts, 10 min).
+- **votes**: are we voting. `voted` (votes per proposal handled, 10 min), `votes` (per second;
+  one per block, so it matches `rate` when healthy), `tmo` (our local timeouts, 10 min).
 - **leader · 24h**: our leader rounds. `led`, `led 1h`, `missed`, `unseen` and `late` (shown
   only while bft logs at DEBUG), `txs` in our blocks, `size` against the network. See
   [rounds.md](rounds.md).
