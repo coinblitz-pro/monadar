@@ -4,19 +4,25 @@
 
 # monadar
 
-CLI monitoring tool for a [Monad](https://monad.xyz) node. Polls the node's JSON-RPC
-(`eth_blockNumber`) and Prometheus metrics endpoint, then renders a live status dashboard
-with colored alerts, an event history, and optional Telegram notifications.
+Monitoring for a [Monad](https://monad.xyz) validator. One static binary runs as a daemon next
+to the node: it reads the node's JSON-RPC (`eth_blockNumber`), receives its OTLP metrics, follows
+the monad-bft and monad-execution journals, and sends Telegram alerts. A viewer attaches to the
+daemon and shows a live dashboard.
 
 ```
-monadar  10:20:35
+monadar  18:48:12
 
-block:   80336279 Δ2 2.47/s     ver:   0.14.4         up:     4h53m     sync: no          peers:  222       sessions: 268
-commits: 44095 Δ2               votes: 43776 Δ3       tmo:    12 Δ0     tc:   11 Δ0       lag:    0         lag_evt:  Δ0
-exec:    80336277 (-2)          tx:    560371 Δ33     txpool: 4         fwd:  9613 Δ2     p99:    113ms     rpc:      0ms
-key:     0xdead..beef           net:   mainnet        stake:  0.36%     prop: 144 Δ0      leader: 0.33%     voted:    99.3%
+block:   115663179 Δ2 3.28/s     ver:    0.16.5          up:     7h21m        sync:   no           peers:  209            sessions: 268
+commits: 87042 Δ4                votes:  86989 Δ3        tmo:    259 Δ0       tc:     293 Δ0       lag:    9/25ms         lag_evt:  Δ0
+exec:    115663177 (-2)          tx:     1621794 Δ93     txpool: 0            fwd:    23015 Δ0     p99:    183ms          rpc:      0ms
+key:     035c51..6d4d            net:    mainnet         stake:  0.35%        prop:   330 Δ0       leader: 0.38%          voted:    100.0%
+led24h:  4 1h 4                  missed: 0               unseen: 0 late 0     blocks: 4            txs:    75 97% net     net_tc:   0.00% 3.32 r/s
 
 ● OK
+
+Recent events:
+10-22 16:59:54 ● Node is not creating votes while blocks advance — consensus participation lost
+10-22 16:59:55 ✓ Resolved: NOT VOTING (1s)
 ```
 
 ## Architecture
@@ -27,7 +33,7 @@ that connects to the daemon over a unix socket and renders the dashboard. The vi
 opened and closed freely without interrupting monitoring; multiple viewers can attach at once.
 
 ```
- daemon ──(poll RPC+metrics, deltas, warnings, Telegram)──► Frame
+ daemon ──(RPC, OTLP metrics, journals → deltas, warnings, Telegram)──► Frame
    │  broadcast Frame as JSON lines over a unix socket
    ▼
  viewer ── connect, render dashboard, local Ctrl+O / Ctrl+H overlays
@@ -46,10 +52,39 @@ checks and debugging.
 
 ## Requirements
 
-- Rust 1.88+ to build (one binary, no runtime needed on the node)
-- A reachable Monad node: RPC at `http://localhost:8080`, metrics at `http://localhost:8889/metrics`
+- x86_64 Linux next to a Monad node (macOS works for development)
+- RPC at `http://localhost:8080`
+- Metrics: the node's `--otel-endpoint` pointing at `127.0.0.1:4317`, where monadar receives
+  them (no OpenTelemetry Collector needed), or a Prometheus endpoint at
+  `http://localhost:8889/metrics`
+- Journal access (root or the `systemd-journal` group) for execution latency and leader rounds;
+  rounds need monad-bft logging at DEBUG
+
+## Install
+
+Download a release binary, check it, and install it with its config next to it:
+
+```sh
+V=v1.0.0
+curl -fLO https://github.com/coinblitz-pro/monadar/releases/download/$V/monadar-$V-x86_64-linux-musl
+curl -fLO https://github.com/coinblitz-pro/monadar/releases/download/$V/SHA256SUMS
+sha256sum -c SHA256SUMS
+gh attestation verify monadar-$V-x86_64-linux-musl -R coinblitz-pro/monadar  # optional, see below
+
+sudo install -D -m 755 monadar-$V-x86_64-linux-musl /opt/monadar/monadar
+sudo /opt/monadar/monadar --init                  # /opt/monadar/monadar.config.json
+sudo /opt/monadar/monadar install --log /opt/monadar/logs/monadar.log
+sudo systemctl enable --now monadar
+/opt/monadar/monadar                              # attach the viewer
+```
+
+To update, replace the binary and run `sudo systemctl restart monadar`; the config, logs and
+the Telegram queue stay. `install` refuses a binary in a temporary directory, because the unit
+would point at a file that disappears.
 
 ## Build
+
+Needs Rust 1.88+.
 
 ```sh
 cargo build --release   # → target/release/monadar
@@ -58,8 +93,9 @@ cargo clippy --all-targets
 ```
 
 `src/fixture_replay.rs` replays bft/exec journals and raw OTLP exports captured on a mainnet
-validator and checks the results against the TS reference numbers. The fixtures (~100 MB) are
-not in the repo; point the test at an unpacked fixture directory:
+validator and checks the results against reference numbers (`expected.json`, computed by the
+former TypeScript implementation). The fixtures (~100 MB) are not in the repo; point the test at
+an unpacked fixture directory:
 
 ```sh
 MONADAR_FIXTURES=/path/to/2026-10-22 cargo test --release fixture -- --nocapture
@@ -73,7 +109,7 @@ x86-64 CPU target, not `target-cpu=native`, so the binary runs on any x86_64 hos
 ./scripts/build-musl.sh  # → target/x86_64-unknown-linux-musl/release/monadar
 ```
 
-The binary is self-contained: copy it to the node (e.g. `/usr/local/bin/monadar`).
+The binary is self-contained: copy it to the node (see [Install](#install)).
 
 ### Releases and verification
 
@@ -90,20 +126,14 @@ sha256sum -c SHA256SUMS                         # the download is intact
 git checkout v1.0.0 && ./scripts/build-musl.sh  # prints the same sha256 as SHA256SUMS
 ```
 
+The workflow also signs a build provenance attestation: a statement from GitHub that this file
+was built by this workflow from this repository at this commit. `gh attestation verify <file>
+-R coinblitz-pro/monadar` checks it, no rebuild needed.
+
 `monadar --version` prints the build: `git describe` of the source, which is the tag for a
-release. The viewer uses it to tell when the daemon runs a different build. When the repository
-is public, the workflow also attaches a signed build provenance attestation, and
-`gh attestation verify <file> -R coinblitz-pro/monadar` checks it.
+release. The viewer uses it to tell when the daemon runs a different build.
 
 The examples below use `monadar` to mean that binary.
-
-## Quick start
-
-```sh
-monadar install            # write a system service (run with sudo)
-sudo systemctl enable --now monadar   # Linux
-monadar                    # attach a viewer to the running daemon
-```
 
 Without a daemon, a bare `monadar` prints how to start one and exits. To run without a
 service at all, use `monadar --foreground`.
@@ -182,7 +212,7 @@ The dashboard row shows our rounds over 24h (with 1h next to it): `led24h`, `mis
 
 ```json
 {
-  "telegram": { "token": "", "chat_id": "", "delay_ticks": 3, "cooldown_min": 5, "api_url": "" },
+  "telegram": { "token": "", "chat_id": "", "delay_ticks": 3, "cooldown_min": 5, "rich": true, "api_url": "" },
   "thresholds": { "peers_min": 50, "p99_max": 500, "lag_max": 5, "rpc_max": 200, "tc_max": 0, "exec_ms_max": 250, "stuck_sec": 5, "net_tc_pct_max": 3, "net_tc_run_max": 1 },
   "log": { "file": "", "flush_sec": 60, "max_size_mb": 50, "keep": 5, "events": "" },
   "socket": "",
@@ -262,7 +292,7 @@ Alerts go through a delivery queue:
 - Every message carries the time of the event. A message that arrives over a minute late says
   so: "delivered 5m late". This happens when the host lost its uplink while the alert was queued.
 - If an alert is still queued when its condition resolves, both go out as one message:
-  "RPC DOWN — resolved after 6s, 12:03:10 → 12:03:16".
+  "RPC DOWN · resolved", "Lasted 6s · 12:03:10 → 12:03:16".
 - The queue is saved next to the event log (`telegram-outbox.json`), so a daemon restart during
   an outage loses nothing.
 - Repeats within `cooldown_min` are not sent. The next message for that condition says how many
@@ -293,8 +323,8 @@ long polling — no public endpoint needed, works behind a firewall) that answer
 
 | Command | Reply |
 |---------|-------|
-| `/status` | Current block, lag, peers, p99, RPC, sync, uptime, version + active warnings |
-| `/events` | The recent-events list |
+| `/status` | Active warnings; node state (block, execution, peers, broadcast p99, RPC, sync, votes, stake, uptime, version, key); our leader rounds for 1h and 24h; network rounds and TCs |
+| `/events` | The recent events with date and time |
 | `/help` | List of commands |
 
 Only messages from the configured `chat_id` are answered. Telegram allows a single `getUpdates`
@@ -302,12 +332,16 @@ consumer per token, so don't point a webhook or a second daemon at the same bot 
 
 ## Dashboard
 
-Four rows; cells turn yellow on a warning threshold and red on a critical condition.
+Cells turn yellow on a warning threshold and red on a critical condition.
 
 - **Row 1** — `block` (+blocks/sec), `ver`, `up`, `sync` (+progress %), `peers`, `sessions`
-- **Row 2** — `commits`, `votes`, `tmo`, `tc`, `lag` (exec behind consensus), `lag_evt`
-- **Row 3** — `exec` (ledger block +diff), `tx`, `txpool`, `fwd`, `p99`, `rpc`
+- **Row 2** — `commits`, `votes`, `tmo`, `tc`, `lag` (execution latency p50/p99 from the journal,
+  or blocks behind consensus without it), `lag_evt`
+- **Row 3** — `exec` (executed block, diff to `block`), `tx`, `txpool`, `fwd`, `p99`, `rpc`
 - **Row 4** — `key`, `net`, `stake`, `prop`, `leader` (prop/handled), `voted` (votes/handled)
+- **Row 5** — our leader rounds and network TCs (see [Flags](#flags)), when bft logs at DEBUG
+
+Below: the status line and the last five events.
 
 ### Keys
 
