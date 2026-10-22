@@ -119,6 +119,8 @@ unit's `ExecStart`, so the daemon runs with the same configuration.
 | `--tc-max <n>` | Warn when timeout-certificate delta exceeds this | `0` |
 | `--exec-ms-max <ms>` | Warn when execution latency p99 (last 60s) exceeds this | `250` |
 | `--stuck-sec <s>` | Critical STUCK when the block number has not changed for this long (one timed-out round alone pauses blocks for ~1.5s) | `5` |
+| `--net-tc-pct-max <n>` | `NET DEGRADED` when more than n% of network rounds in the last 10 min ended by TC (normal is ~0.7%) | `3` |
+| `--net-tc-run-max <n>` | `NET DEGRADED` when more than n TC rounds came back to back in the last 10 min (the whole chain stands still) | `1` |
 
 Execution latency comes from `__exec_block` lines in the `monad-execution` journal: each line has the time execution finished and `ts`, when BFT accepted the proposal. The daemon runs `journalctl -f`, so it needs root or the `systemd-journal` group. If there are no recent lines, monadar falls back to the `monad_execution_ledger_block_num` metric. That metric lags by the OTLP export interval.
 
