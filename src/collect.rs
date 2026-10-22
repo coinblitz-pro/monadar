@@ -16,6 +16,7 @@ use crate::types::{Frame, FrameError, RoundSummary, Snapshot};
 
 // bft exports every second; no export for this long means the node isn't pushing.
 const OTLP_STALE_MS: i64 = 15_000;
+const LIVE_RPC_TIMEOUT: Duration = Duration::from_millis(500);
 
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -101,6 +102,15 @@ impl Collector {
         let exec = self.exec_log.lock().unwrap().snapshot(now as f64);
         let bft = self.bft_log.lock().unwrap();
         JournalView { exec, rounds: bft.summary(now), bft_silent_ms: bft.silent_ms(now) }
+    }
+
+    // For viewers between ticks: the current block from RPC and the executed
+    // block from the execution journal. None without a live journal: with the
+    // metric's execution height, 1s old, the lag would look wrong.
+    pub async fn live_blocks(&self) -> Option<(i64, i64)> {
+        let exec = self.exec_log.lock().unwrap().last_block(now_ms() as f64)?;
+        let (block, _) = fetch_block_number(RPC_URL, LIVE_RPC_TIMEOUT).await.ok()?;
+        Some((block, exec))
     }
 
     // Dead man's switch ping, daemon only: fire and forget, the far end alerts on silence.

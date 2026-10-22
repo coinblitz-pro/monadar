@@ -78,6 +78,11 @@ impl ExecWindow {
         self.last_block = Some(s.block);
     }
 
+    // The newest executed block, if the journal is live.
+    pub fn last_block(&self, now_ms: f64) -> Option<i64> {
+        self.samples.back().filter(|s| s.done_ms >= now_ms - self.window_ms).map(|s| s.block)
+    }
+
     pub fn snapshot(&mut self, now_ms: f64) -> ExecSnapshot {
         while self.samples.front().is_some_and(|s| s.done_ms < now_ms - self.window_ms) {
             self.samples.pop_front();

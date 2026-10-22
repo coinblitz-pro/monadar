@@ -33,6 +33,14 @@ opened and closed freely without interrupting monitoring; multiple viewers can a
  viewer ── connect, render dashboard, local Ctrl+O / Ctrl+H overlays
 ```
 
+The full tick runs once a second: the node exports metrics over OTLP once a second
+(`--record-metrics-interval-seconds 1`), and alerts and the log follow the tick. Between ticks,
+while a viewer is attached, the daemon polls local RPC every 100 ms and sends a frame whenever
+the block or the executed block (from the `monad-execution` journal) moves, so these two and the
+execution lag update with the chain, about every 0.3–0.4 s. RPC shows a new block about 0.2 s
+before journald delivers the bft line about it, so RPC is the faster source. Without a live
+execution journal the dashboard updates once a second.
+
 A standalone `--foreground` mode (poll + render in one process, no daemon) is kept for quick
 checks and debugging.
 
