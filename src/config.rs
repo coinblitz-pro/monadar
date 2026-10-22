@@ -29,6 +29,8 @@ pub struct TelegramConfig {
     pub api_url: String,
     pub token: String,
     pub chat_id: String,
+    // Rich Messages (Bot API 10.1+); false: classic HTML messages.
+    pub rich: bool,
     pub delay_ticks: Option<u64>,
     pub cooldown_min: Option<f64>,
 }
@@ -102,6 +104,7 @@ pub fn load_config(config_path: Option<&str>) -> Config {
         api_url: non_empty(t.get("api_url")).unwrap_or_else(|| "https://api.telegram.org".into()).trim_end_matches('/').to_string(),
         token: t.get("token").and_then(scalar).unwrap_or_default(),
         chat_id: t.get("chat_id").and_then(scalar).unwrap_or_default(),
+        rich: t.get("rich").and_then(Value::as_bool).unwrap_or(true),
         delay_ticks: t.get("delay_ticks").and_then(Value::as_u64),
         cooldown_min: number(t.get("cooldown_min")),
     });

@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 
 use crate::format::{js_round, num};
 use crate::notify::{Notice, NoticeKind, Notifier};
-use crate::telegram::fmt_snap;
+use crate::telegram::snapshot_rows;
 use crate::types::{EventLevel, HistoryEntry, Level, RoundSummary, Snapshot, Thresholds, Warning};
 
 // Below this many rounds in 10 min (normally ~1500) the TC share is not meaningful.
@@ -401,7 +401,7 @@ impl AlertProcessor {
                                 at: since,
                                 title: w.short.clone(),
                                 detail: w.detail.clone(),
-                                snap: fmt_snap(snap),
+                                snap: snapshot_rows(snap),
                                 since: None,
                                 suppressed,
                             });
@@ -430,7 +430,7 @@ impl AlertProcessor {
                             at: a.cleared_at,
                             title: a.warning.short,
                             detail: String::new(),
-                            snap: fmt_snap(snap),
+                            snap: snapshot_rows(snap),
                             since: Some(a.since),
                             suppressed: 0,
                         });
@@ -453,7 +453,7 @@ impl AlertProcessor {
                 at: now,
                 title: "NODE RESTART".into(),
                 detail: format!("uptime {uptime}"),
-                snap: fmt_snap(snap),
+                snap: snapshot_rows(snap),
                 since: None,
                 suppressed,
             });

@@ -17,7 +17,7 @@ const VALUE_FLAGS: [&str; 12] = [
 
 const OPTIONAL_VALUE_FLAGS: [&str; 1] = ["--log"];
 const BOOL_FLAGS: [&str; 10] = ["--foreground", "--verbose", "-v", "--bell", "--init", "--print", "--version", "-V", "--help", "-h"];
-const COMMANDS: [&str; 4] = ["install", "uninstall", "status", "daemon"];
+const COMMANDS: [&str; 5] = ["install", "uninstall", "status", "daemon", "telegram-test"];
 const SERVICE_DROP: [&str; 7] = ["install", "uninstall", "status", "daemon", "--foreground", "--init", "--print"];
 
 const THRESHOLD_FLAGS: [(&str, &str); 9] = [
@@ -38,6 +38,7 @@ pub struct CliArgs {
     pub uninstall: bool,
     pub status: bool,
     pub daemon: bool,
+    pub telegram_test: bool,
     pub foreground: bool,
     pub verbose: bool,
     pub bell: bool,
@@ -86,6 +87,7 @@ commands:
   install      write the systemd unit / launchd plist (--print: show it instead)
   uninstall    remove the service unit
   status       report whether the daemon is running
+  telegram-test  send sample alerts and /status to the configured chat
 
 flags:
   --foreground           poll + render in one process, no daemon
@@ -169,6 +171,7 @@ pub fn parse_args(raw: &[String]) -> CliArgs {
         uninstall: has("uninstall"),
         status: has("status"),
         daemon: has("daemon"),
+        telegram_test: has("telegram-test"),
         foreground: has("--foreground"),
         verbose: has("--verbose") || has("-v"),
         bell: has("--bell"),

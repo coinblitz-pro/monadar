@@ -200,16 +200,6 @@ pub enum Status {
     Ok,
 }
 
-impl Status {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Status::Crit => "crit",
-            Status::Warn => "warn",
-            Status::Ok => "ok",
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Frame {

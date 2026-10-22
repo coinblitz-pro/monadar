@@ -25,6 +25,7 @@ mod otlp;
 mod poll;
 mod protocol;
 mod render;
+mod rich;
 mod socket;
 mod telegram;
 mod telegram_bot;
@@ -48,7 +49,7 @@ fn write_config_template() {
         return;
     }
     let template = json!({
-        "telegram": { "token": "", "chat_id": "", "delay_ticks": 3, "cooldown_min": 5, "api_url": "" },
+        "telegram": { "token": "", "chat_id": "", "delay_ticks": 3, "cooldown_min": 5, "rich": true, "api_url": "" },
         "thresholds": { "peers_min": 50, "p99_max": 500, "lag_max": 5, "rpc_max": 200, "tc_max": 0, "exec_ms_max": 250, "stuck_sec": 5, "net_tc_pct_max": 3, "net_tc_run_max": 1 },
         "log": { "file": "", "flush_sec": 60, "max_size_mb": 50, "keep": 5, "events": "" },
         "socket": "",
@@ -148,6 +149,10 @@ async fn main() {
         std::process::exit(2);
     }
 
+    if let Some(t) = &s.config.telegram {
+        telegram::set_rich(t.rich);
+    }
+
     if s.args.version {
         println!("monadar {}", config::BUILD_VERSION);
     } else if s.args.should_init {
@@ -158,6 +163,11 @@ async fn main() {
         install::uninstall();
     } else if s.args.status {
         install::status();
+    } else if s.args.telegram_test {
+        if let Err(e) = telegram_bot::send_samples().await {
+            eprintln!("monadar: {e}");
+            std::process::exit(1);
+        }
     } else {
         apply_affinity(s);
         if s.args.daemon {

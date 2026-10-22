@@ -3,13 +3,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::sync::mpsc;
 
-use crate::alerts::fmt_duration;
 use crate::config::TelegramConfig;
 use crate::http;
-use crate::telegram::html;
+use crate::telegram::{notice_message, send};
 
 // Telegram delivery. The alert processor decides *what* to say; this outbox
 // makes sure it is said:
@@ -25,8 +24,6 @@ use crate::telegram::html;
 const MAX_QUEUE: usize = 200;
 const MAX_BACKOFF: Duration = Duration::from_secs(60);
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
-// Delivered later than this after the event: say so in the message.
-const LATE_MS: i64 = 60_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -44,7 +41,8 @@ pub struct Notice {
     pub at: i64,
     pub title: String,
     pub detail: String,
-    pub snap: String,
+    // Node state at the event: label/value rows.
+    pub snap: Vec<(String, String)>,
     // Resolved: when the condition started.
     pub since: Option<i64>,
     // Repeats of this key skipped by the cooldown since the previous message.
@@ -98,44 +96,6 @@ pub fn coalesce(queue: &mut VecDeque<Pending>) {
             None => i += 1,
         }
     }
-}
-
-fn clock(ms: i64, now_ms: i64) -> String {
-    let Some(t) = chrono::DateTime::from_timestamp_millis(ms) else { return "?".into() };
-    let t = t.with_timezone(&chrono::Local);
-    let now = chrono::DateTime::from_timestamp_millis(now_ms).map(|n| n.with_timezone(&chrono::Local));
-    if now.is_some_and(|n| n.date_naive() == t.date_naive()) { t.format("%H:%M:%S") } else { t.format("%m-%d %H:%M:%S") }.to_string()
-}
-
-pub fn render(p: &Pending, now_ms: i64) -> String {
-    let n = &p.notice;
-    let title = html(&n.title);
-    let mut out = match (n.kind, p.resolved_at) {
-        (NoticeKind::Fired, None) => format!("🚨 <b>{title}</b>\n{}", html(&n.detail)),
-        (NoticeKind::Fired, Some(r)) => {
-            format!("⚠️ <b>{title}</b> — resolved after {}\n{}", fmt_duration(r - n.at), html(&n.detail))
-        }
-        (NoticeKind::Resolved, _) => {
-            let dur = n.since.map(|s| format!(" after {}", fmt_duration(n.at - s))).unwrap_or_default();
-            format!("✅ <b>{title}</b> resolved{dur}")
-        }
-        (NoticeKind::Info, _) => format!("🔄 <b>{title}</b>\n{}", html(&n.detail)),
-    };
-    if !n.snap.is_empty() {
-        out += &format!("\n<pre>{}</pre>", html(&n.snap));
-    }
-    let mut when = format!("🕒 {}", clock(n.at, now_ms));
-    if let Some(r) = p.resolved_at {
-        when += &format!(" → {}", clock(r, now_ms));
-    }
-    let last_event = p.resolved_at.unwrap_or(n.at);
-    if now_ms - last_event > LATE_MS {
-        when += &format!(" · delivered {} late", fmt_duration(now_ms - last_event));
-    }
-    if n.suppressed > 0 {
-        when += &format!(" · {} earlier repeat(s) within cooldown not sent", n.suppressed);
-    }
-    out + "\n" + &when
 }
 
 pub enum Outcome {
@@ -197,7 +157,7 @@ fn now_ms() -> i64 {
 }
 
 pub fn start_telegram_outbox(t: &TelegramConfig, state_file: Option<PathBuf>) -> Box<dyn Notifier> {
-    let url = format!("{}/bot{}/sendMessage", t.api_url, t.token);
+    let base = format!("{}/bot{}", t.api_url, t.token);
     let chat_id = t.chat_id.clone();
     let (tx, mut rx) = mpsc::unbounded_channel::<Notice>();
     tokio::spawn(async move {
@@ -216,9 +176,8 @@ pub fn start_telegram_outbox(t: &TelegramConfig, state_file: Option<PathBuf>) ->
             }
             save(&state_file, &queue);
 
-            let text = render(&queue[0], now_ms());
-            let body = json!({ "chat_id": chat_id, "text": text, "parse_mode": "HTML" });
-            let wait = match classify(http::post_json(&url, &body, SEND_TIMEOUT).await) {
+            let msg = notice_message(&queue[0], now_ms());
+            let wait = match classify(send(&base, &chat_id, &msg, SEND_TIMEOUT).await) {
                 Outcome::Delivered => {
                     queue.pop_front();
                     backoff = Duration::from_secs(1);
@@ -266,7 +225,7 @@ mod tests {
             at,
             title: key.replace('_', " "),
             detail: "detail <x>".into(),
-            snap: "block  1".into(),
+            snap: vec![("Block".into(), "1".into())],
             since: (kind == NoticeKind::Resolved).then_some(at - 134_000),
             suppressed: 0,
         }
@@ -297,20 +256,6 @@ mod tests {
     fn a_resolve_without_a_queued_alert_stays() {
         let q = queue(vec![notice("STUCK", NoticeKind::Resolved, 5_000), notice("STUCK", NoticeKind::Fired, 9_000)]);
         assert_eq!(q.iter().map(|p| p.notice.kind).collect::<Vec<_>>(), vec![NoticeKind::Resolved, NoticeKind::Fired]);
-    }
-
-    #[test]
-    fn renders_event_time_and_lateness() {
-        let p = Pending { notice: notice("STUCK", NoticeKind::Fired, 1_000_000), resolved_at: None };
-        let on_time = render(&p, 1_005_000);
-        assert!(on_time.starts_with("🚨 <b>STUCK</b>\ndetail &lt;x&gt;\n<pre>block  1</pre>\n🕒 "), "{on_time}");
-        assert!(!on_time.contains("late"));
-        assert!(render(&p, 1_000_000 + 300_000).ends_with("delivered 5m0s late"));
-
-        let merged = Pending { notice: notice("STUCK", NoticeKind::Fired, 1_000_000), resolved_at: Some(1_134_000) };
-        let text = render(&merged, 1_140_000);
-        assert!(text.starts_with("⚠️ <b>STUCK</b> — resolved after 2m14s"), "{text}");
-        assert!(text.contains(" → "));
     }
 
     #[test]

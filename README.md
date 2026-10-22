@@ -110,6 +110,7 @@ service at all, use `monadar --foreground`.
 | `monadar install [--print]` | Generate the systemd unit / launchd plist (`--print` writes it to stdout instead of installing) |
 | `monadar uninstall` | Remove the service unit |
 | `monadar status` | Probe the socket and report whether the daemon is running |
+| `monadar telegram-test` | Send sample alerts, `/status` and `/events` to the configured Telegram chat |
 | `monadar --init` | Write a `monadar.config.json` template next to the binary |
 | `monadar --version` | Print the build version (`git describe` of the source) |
 
@@ -187,8 +188,10 @@ The dashboard row shows our rounds over 24h (with 1h next to it): `led24h`, `mis
 
 - **telegram** — bot `token` and `chat_id` for alerts. `delay_ticks`: a critical alert must
   persist this many ticks before notifying (and a recovery as many ticks before "resolved" is
-  sent); `cooldown_min`: minimum minutes between two alerts for the same condition. `api_url`:
-  Bot API base, `https://api.telegram.org` by default (set it for a local Bot API server or proxy).
+  sent); `cooldown_min`: minimum minutes between two alerts for the same condition. `rich`: send
+  Telegram Rich Messages (headings, tables; default `true`), `false` for classic HTML messages.
+  `api_url`: Bot API base, `https://api.telegram.org` by default (set it for a local Bot API
+  server or proxy).
 - **thresholds** — same values as the threshold flags above; CLI flags override the config.
 - **log** — `file` path, flush interval `flush_sec`, rotation (see below), and `events` — the
   path of the persistent event log (defaults to `events.log` next to `file`).
@@ -249,6 +252,13 @@ Alerts go through a delivery queue:
   an outage loses nothing.
 - Repeats within `cooldown_min` are not sent. The next message for that condition says how many
   were skipped. A skipped alert gets no "resolved" message either.
+- Messages are Telegram Rich Messages (Bot API 10.1+): a heading, the reason, a table with the
+  node's state, and a footer with the host name and event time. If Telegram rejects a rich
+  message (for example, an older Bot API server behind `api_url`), monadar sends the same
+  message as HTML and keeps using HTML until it restarts.
+- `monadar telegram-test` sends one message of each kind (alert, alert resolved while queued,
+  resolved, late alert, restart, `/status`, `/events`, `/help`) to the configured chat. It uses
+  the running daemon's live data, so you can check how messages look.
 - Each request uses its own connection with `SO_LINGER=0`. A timed-out request is discarded by
   the kernel, not retransmitted minutes later when the network returns.
 
