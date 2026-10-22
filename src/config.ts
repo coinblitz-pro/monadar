@@ -12,7 +12,7 @@ export const bell = cliArgs.bell
 export const shouldInit = cliArgs.shouldInit
 export const interval = cliArgs.intervalSec * 1000
 
-export const DEFAULT_THRESHOLDS: Thresholds = { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0, exec_ms_max: 250, stuck_sec: 5 }
+export const DEFAULT_THRESHOLDS: Thresholds = { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0, exec_ms_max: 250, stuck_sec: 5, net_tc_pct_max: 3, net_tc_run_max: 1 }
 
 export function loadConfig(configPath: string | null, entrypoint: string): Config {
   const p = configPath ?? resolve(dirname(entrypoint), 'monadar.config.json')
@@ -49,6 +49,8 @@ export const thresholds = {
   tc_max: cliArgs.thresholdOverrides.tc_max ?? config.thresholds.tc_max,
   exec_ms_max: cliArgs.thresholdOverrides.exec_ms_max ?? config.thresholds.exec_ms_max,
   stuck_sec: cliArgs.thresholdOverrides.stuck_sec ?? config.thresholds.stuck_sec,
+  net_tc_pct_max: cliArgs.thresholdOverrides.net_tc_pct_max ?? config.thresholds.net_tc_pct_max,
+  net_tc_run_max: cliArgs.thresholdOverrides.net_tc_run_max ?? config.thresholds.net_tc_run_max,
 }
 
 export const logFile = cliArgs.logFile || config.log?.file || null

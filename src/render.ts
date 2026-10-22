@@ -161,7 +161,8 @@ export function applyFrame(f: Frame) {
     const lateStr = `late ${d.lateTmo}`
     const unseenVal = `${d.notReceived > 0 ? c.yellow(String(d.notReceived)) : '0'} `
       + (r.lateTmo10m > 0 ? c.yellow(lateStr) : c.dim(lateStr))
-    const netPct = d.netRounds > 0 ? (d.netMissed / d.netRounds * 100).toFixed(2) + '%' : '?'
+    const netPctStr = d.netRounds > 0 ? (d.netMissed / d.netRounds * 100).toFixed(2) + '%' : '?'
+    const netPct = f.warnings.some(w => w.key === 'NET_DEGRADED') ? c.yellow(netPctStr) : netPctStr
     rows.push([
       { label: 'led24h:', value: `${d.led} ${c.dim(`1h ${r.h1.led}`)}` },
       { label: 'missed:', value: missedVal },

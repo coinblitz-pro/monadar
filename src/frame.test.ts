@@ -4,7 +4,8 @@ import { buildTickFrame, createCollectorState, recordBlock } from './frame'
 import type { MetricsSnapshot } from './metric_snapshot'
 import type { Thresholds } from './types'
 
-const thresholds: Thresholds = { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0, exec_ms_max: 250, stuck_sec: 5 }
+const NET_OK = { rounds: 1500, tc: 10, maxTcRun: 1 }
+const thresholds: Thresholds = { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0, exec_ms_max: 250, stuck_sec: 5, net_tc_pct_max: 3, net_tc_run_max: 1 }
 
 function metrics(overrides: Partial<MetricsSnapshot> = {}): MetricsSnapshot {
   return {
@@ -115,7 +116,7 @@ test('buildTickFrame raises a critical MISSED_ROUND when our rounds timed out re
     rpcMs: 10,
     metrics: metrics({ execBlock: 110 }),
     thresholds,
-    rounds: { h1: agg, h24: agg, missed10m: 1, lateTmo10m: 0, lastMissed: { round: 5, t: 0 }, roundsPerSec: 2.5 },
+    rounds: { h1: agg, h24: agg, missed10m: 1, lateTmo10m: 0, net10m: NET_OK, lastMissed: { round: 5, t: 0 }, roundsPerSec: 2.5 },
   })
 
   assert.deepEqual(frame.warnings.map(w => w.key), [ 'MISSED_ROUND' ])
@@ -139,7 +140,7 @@ test('with round data, network timeouts/TCs are not warnings but our late timeou
       blockDelta: sample.blockDelta,
       // another leader missed: both counters grew by one
       metrics: metrics({ execBlock: 112, timeouts: 1, tc: 1, votes: 101 }),
-      rounds: withRounds ? { h1: agg, h24: agg, missed10m: 0, lateTmo10m, lastMissed: null, roundsPerSec: 2.5 } : null,
+      rounds: withRounds ? { h1: agg, h24: agg, missed10m: 0, lateTmo10m, net10m: NET_OK, lastMissed: null, roundsPerSec: 2.5 } : null,
     }).frame.warnings.map(w => w.key)
   }
 
@@ -163,6 +164,27 @@ test('buildTickFrame warns when execution latency p99 exceeds exec_ms_max', () =
   })
 
   assert.deepEqual(frame.warnings.map(w => w.key), [ 'EXEC_SLOW' ])
+})
+
+test('NET_DEGRADED fires on an abnormal TC share or back-to-back TCs, marked as network', () => {
+  const agg = { led: 0, ok: 0, missed: 0, failed: 0, notReceived: 0, committed: 0, txs: 0, netRounds: 1500, netMissed: 10, lateTmo: 0, sizeOurTxs: 0, sizePeerTxs: 0, sizeSamples: 0, fwdTxs: 0 }
+  const warn = (net10m: { rounds: number; tc: number; maxTcRun: number }) => {
+    const state = createCollectorState()
+    const sample = recordBlock(state, 110, 0)
+    return buildTickFrame(state, {
+      ts: '12:00:00', block: 110, blockDelta: sample.blockDelta, bps: sample.bps, rpcMs: 10,
+      metrics: metrics({ execBlock: 110 }), thresholds,
+      rounds: { h1: agg, h24: agg, missed10m: 0, lateTmo10m: 0, net10m, lastMissed: null, roundsPerSec: 2.5 },
+    }).frame.warnings.filter(w => w.key === 'NET_DEGRADED')
+  }
+
+  assert.deepEqual(warn({ rounds: 1500, tc: 10, maxTcRun: 1 }), [], 'normal: ~0.7%, single TCs')
+  const pct = warn({ rounds: 1500, tc: 60, maxTcRun: 1 })
+  assert.equal(pct[0]?.short, 'NET TC 4.0%')
+  assert.equal(pct[0]?.level, 'warn')
+  assert.match(pct[0]!.detail, /not our node/)
+  assert.equal(warn({ rounds: 1500, tc: 12, maxTcRun: 3 })[0]?.short, 'NET TC ×3 in a row')
+  assert.deepEqual(warn({ rounds: 50, tc: 10, maxTcRun: 1 }), [], 'too few rounds for a share')
 })
 
 test('STUCK needs the block to stay unchanged for stuck_sec, not a single tick', () => {

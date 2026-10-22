@@ -135,6 +135,24 @@ test('round tracker reports null before any bft line and ignores rounds while se
   assert.equal(tr.summary(T0)!.h24.netRounds, 1)
 })
 
+test('net10m counts TC rounds and the longest run of consecutive TCs', () => {
+  const tr = createRoundTracker()
+  const t = T0
+  // Rounds 1-10: TCs at 3, 6, 7, 8 → one single TC and a run of 3.
+  for (let round = 1; round <= 10; round++) {
+    tr.ingest({ kind: 'leader', round, leader: OTHER, t })
+    if ([ 3, 6, 7, 8 ].includes(round)) tr.ingest({ kind: 'tc', round, t })
+  }
+  // Events can arrive out of round order; finalization must still be ordered.
+  tr.ingest({ kind: 'tc', round: 12, t })
+  tr.ingest({ kind: 'leader', round: 11, leader: OTHER, t })
+  tr.ingest({ kind: 'leader', round: 30, leader: OTHER, t })
+
+  const s = tr.summary(t)!
+  assert.deepEqual(s.net10m, { rounds: 12, tc: 5, maxTcRun: 3 })
+  assert.equal(tr.summary(t + 11 * 60_000)!.net10m.maxTcRun, 0, 'old runs drop out of the 10 min window')
+})
+
 test('block size is compared with the median of preceding network blocks', () => {
   const tr = createRoundTracker()
   tr.setSelf(ME)

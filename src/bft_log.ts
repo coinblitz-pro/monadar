@@ -114,6 +114,11 @@ export function createRoundTracker() {
   let lastEventT: number | null = null
   let lastProposalAuthor: string | null = null
   const peerSizes: number[] = [] // txs of the last SIZE_NEIGHBOURS network blocks (not ours)
+  // Runs of consecutive TC rounds (≥2): several leaders in a row produced no
+  // block, so the whole network stood still for seconds.
+  let lastFinal = 0
+  let tcRun = 0
+  const tcRuns: { start: number; len: number; t: number }[] = []
 
   function bucket(t: number): RoundAgg {
     const m = Math.floor(t / MINUTE)
@@ -142,6 +147,7 @@ export function createRoundTracker() {
     b.netRounds++
     if (r.tc) b.netMissed++
     if (r.localTmo && !r.tc) b.lateTmo++
+    trackTcRun(round, r)
     if (!self || leader !== self) return
 
     b.led++
@@ -155,6 +161,17 @@ export function createRoundTracker() {
       b.notReceived++
     }
     if (r.tc) lastMissed = { round, t: r.t }
+  }
+
+  function trackTcRun(round: number, r: RoundInfo) {
+    tcRun = r.tc ? (round === lastFinal + 1 ? tcRun : 0) + 1 : 0
+    lastFinal = round
+    if (tcRun < 2) return
+    const start = round - tcRun + 1
+    const last = tcRuns[tcRuns.length - 1]
+    if (last && last.start === start) last.len = tcRun
+    else tcRuns.push({ start, len: tcRun, t: r.t })
+    while (tcRuns.length > 0 && tcRuns[0].t < r.t - DAY_MINUTES * MINUTE) tcRuns.shift()
   }
 
   function blockSize(txs: number, t: number) {
@@ -206,11 +223,11 @@ export function createRoundTracker() {
 
     if (e.round > maxRound) {
       maxRound = e.round
-      for (const [ round, ri ] of pending) {
-        if (round <= maxRound - FINAL_LAG) {
-          finalize(round, ri)
-          pending.delete(round)
-        }
+      // Finalize in round order so consecutive-TC runs are detected correctly.
+      const ready = [ ...pending.keys() ].filter(round => round <= maxRound - FINAL_LAG).sort((a, b) => a - b)
+      for (const round of ready) {
+        finalize(round, pending.get(round)!)
+        pending.delete(round)
       }
     }
   }
@@ -232,6 +249,11 @@ export function createRoundTracker() {
       h24: sum(now - DAY_MINUTES + 1, now),
       missed10m: last10.missed + last10.failed,
       lateTmo10m: last10.lateTmo,
+      net10m: {
+        rounds: last10.netRounds,
+        tc: last10.netMissed,
+        maxTcRun: Math.max(0, ...tcRuns.filter(x => x.t >= nowMs - MISSED_ALERT_MINUTES * MINUTE).map(x => x.len)),
+      },
       lastMissed,
       roundsPerSec: prevMinute.netRounds / 60,
     }

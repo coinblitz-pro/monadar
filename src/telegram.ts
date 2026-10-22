@@ -59,6 +59,7 @@ function roundLines(r: RoundSummary): string[] {
     `size   our blocks vs network: 1h ${size(r.h1)}, 24h ${size(r.h24)}`,
     `fwd    txs forwarded to us: 1h ${r.h1.fwdTxs}, 24h ${r.h24.fwdTxs}`,
     `net    ${r.roundsPerSec.toFixed(2)} rounds/s, TC ${r.h24.netMissed}/${r.h24.netRounds} (${net}%) 24h`,
+    `net10m TC ${r.net10m.tc}/${r.net10m.rounds}, longest TC run ${r.net10m.maxTcRun}`,
     ...(r.lastMissed ? [ `last   missed round ${r.lastMissed.round} at ${new Date(r.lastMissed.t).toISOString().slice(0, 19)}Z` ] : []),
   ]
 }

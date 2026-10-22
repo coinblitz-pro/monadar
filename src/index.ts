@@ -21,7 +21,7 @@ if (shouldInit) {
   } else {
     const template = JSON.stringify({
       telegram: { token: '', chat_id: '', delay_ticks: 3, cooldown_min: 5 },
-      thresholds: { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0, exec_ms_max: 250, stuck_sec: 5 },
+      thresholds: { peers_min: 50, p99_max: 500, lag_max: 5, rpc_max: 200, tc_max: 0, exec_ms_max: 250, stuck_sec: 5, net_tc_pct_max: 3, net_tc_run_max: 1 },
       log: { file: '', flush_sec: 60, max_size_mb: 50, keep: 5, events: '' },
       socket: '',
       cpu: '',

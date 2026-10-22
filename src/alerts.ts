@@ -5,7 +5,10 @@ import {
   warningTelegramMessage,
 } from './telegram'
 import type { HistoryStore } from './event_history'
-import type { Snapshot, Thresholds, Warning } from './types'
+import type { RoundSummary, Snapshot, Thresholds, Warning } from './types'
+
+// Below this many rounds in 10 min (normally ~1500) the TC share is not meaningful.
+const NET_MIN_ROUNDS = 200
 
 function fmtDuration(ms: number): string {
   const s = Math.floor(ms / 1000)
@@ -20,7 +23,7 @@ export function checkWarnings(
   blockDelta: number | null, stalledMs: number | null,
   dv: number | null, dt: number | null, dtc: number | null,
   syncing: number | null, lagging: number, execP99: number | null,
-  rounds: { missed10m: number; lateTmo10m: number } | null,
+  rounds: Pick<RoundSummary, 'missed10m' | 'lateTmo10m' | 'net10m'> | null,
   peers: number | null, latP99: number | null,
   rpcMs: number | null,
   thresholds: Thresholds,
@@ -45,6 +48,22 @@ export function checkWarnings(
       w.push({ level: 'crit', key: 'MISSED_ROUND', short: `MISSED ROUND ×${rounds.missed10m}`, detail: `Our node was leader and its block did not make it in ${rounds.missed10m} round(s) during the last 10 min (round ended by timeout certificate)` })
     if (rounds.lateTmo10m > 0)
       w.push({ level: 'warn', key: 'LATE', short: `LATE ×${rounds.lateTmo10m}`, detail: `Our node timed out ${rounds.lateTmo10m} round(s) in the last 10 min that the network completed normally — proposals reach us late (network/CPU)` })
+
+    // Network-wide degradation, explicitly not our node. Single TC rounds are
+    // routine (~0.7%, mostly a few offline validators), so only abnormal rates
+    // or back-to-back TCs (the whole chain stands still for seconds) count.
+    const n = rounds.net10m
+    const tcPct = n.rounds >= NET_MIN_ROUNDS ? n.tc / n.rounds * 100 : 0
+    const reasons: string[] = []
+    if (tcPct > thresholds.net_tc_pct_max) reasons.push(`${tcPct.toFixed(1)}% of rounds ended by TC`)
+    if (n.maxTcRun > thresholds.net_tc_run_max) reasons.push(`${n.maxTcRun} TC rounds in a row`)
+    if (reasons.length > 0)
+      w.push({
+        level: 'warn',
+        key: 'NET_DEGRADED',
+        short: tcPct > thresholds.net_tc_pct_max ? `NET TC ${tcPct.toFixed(1)}%` : `NET TC ×${n.maxTcRun} in a row`,
+        detail: `Network (not our node), last 10 min: ${reasons.join(', ')}`,
+      })
   } else {
     // No journal data (bft not logging at DEBUG): fall back to metric deltas,
     // which can't tell our timeouts from other leaders' misses.

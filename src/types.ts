@@ -6,6 +6,8 @@ export type Thresholds = {
   tc_max: number
   exec_ms_max: number
   stuck_sec: number
+  net_tc_pct_max: number
+  net_tc_run_max: number
 }
 
 export type ExecStats = { count: number; p50: number; p99: number; max: number }
@@ -39,6 +41,9 @@ export type RoundSummary = {
   h24: RoundAgg
   missed10m: number
   lateTmo10m: number
+  // Network health over the last 10 min: rounds seen, rounds ended by TC,
+  // and the longest run of consecutive TC rounds.
+  net10m: { rounds: number; tc: number; maxTcRun: number }
   lastMissed: { round: number; t: number } | null
   roundsPerSec: number
 }
