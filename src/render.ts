@@ -140,7 +140,24 @@ export function applyFrame(f: Frame) {
     { label: 'voted:', value: votedVal },
   ]
 
-  const lines = renderTable([ row1, row2, row3, row4 ])
+  const rows = [ row1, row2, row3, row4 ]
+  const r = f.rounds ?? null
+  if (r) {
+    const d = r.h24
+    const lost = d.missed + d.failed
+    const missedVal = r.missed10m > 0 ? c.red(String(lost)) : lost > 0 ? c.yellow(String(lost)) : String(lost)
+    const unseenVal = d.notReceived > 0 ? c.yellow(String(d.notReceived)) : '0'
+    const netPct = d.netRounds > 0 ? (d.netMissed / d.netRounds * 100).toFixed(2) + '%' : '?'
+    rows.push([
+      { label: 'led24h:', value: `${d.led} ${c.dim(`1h ${r.h1.led}`)}` },
+      { label: 'missed:', value: missedVal },
+      { label: 'unseen:', value: unseenVal },
+      { label: 'blocks:', value: String(d.committed) },
+      { label: 'txs:', value: String(d.txs) },
+      { label: 'net_tc:', value: `${netPct} ${c.dim(`${r.roundsPerSec.toFixed(2)} r/s`)}` },
+    ])
+  }
+  const lines = renderTable(rows)
   const status = f.status === 'crit' ? c.red('● CRITICAL')
     : f.status === 'warn' ? c.yellow('▲ WARNING ')
       : c.green('● OK      ')
@@ -178,6 +195,9 @@ function renderHelp(): string {
   out += h('fwd', 'forwarded transactions received', 'prop', 'proposals created (was leader)')
   out += h('p99', 'UDP broadcast latency p99', 'leader', 'leader rate (prop/handled)')
   out += h('rpc', 'RPC response time', 'voted', 'vote participation (votes/handled)')
+  out += h('led24h', 'rounds we led, 24h (1h)', 'missed', 'our rounds ended by TC, 24h')
+  out += h('unseen', 'our rounds we never saw, 24h', 'blocks', 'our blocks committed, 24h')
+  out += h('txs', 'txs in our blocks, 24h', 'net_tc', 'network rounds ended by TC, 24h')
   return out
 }
 

@@ -5,7 +5,7 @@ import type { HistoryEntry, Snapshot, Warning } from './types'
 
 const SNAP: Snapshot = {
   block: 0, blockDelta: null, bps: '?', lag: 0, execP99: null, peers: null, p99: null,
-  rpcMs: 0, syncing: null, syncPct: null, uptime: '?', ver: '?',
+  rpcMs: 0, syncing: null, syncPct: null, uptime: '?', ver: '?', led24h: null, missed24h: null,
 }
 
 const RPC_DOWN: Warning = { level: 'crit', key: 'RPC_DOWN', short: 'RPC DOWN', detail: 'down', notify: 'msg' }

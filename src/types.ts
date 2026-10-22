@@ -9,6 +9,28 @@ export type Thresholds = {
 
 export type ExecStats = { count: number; p50: number; p99: number; max: number }
 
+// Leader-round counters (bft_log.ts). led/ok/missed/failed/notReceived/committed/txs
+// are for our node; netRounds/netMissed are network-wide (rounds seen / rounds ended by TC).
+export type RoundAgg = {
+  led: number
+  ok: number
+  missed: number
+  failed: number
+  notReceived: number
+  committed: number
+  txs: number
+  netRounds: number
+  netMissed: number
+}
+
+export type RoundSummary = {
+  h1: RoundAgg
+  h24: RoundAgg
+  missed10m: number
+  lastMissed: { round: number; t: number } | null
+  roundsPerSec: number
+}
+
 export type Config = {
   telegram?: { token: string; chat_id: string; delay_ticks?: number; cooldown_min?: number }
   thresholds: Thresholds
@@ -49,6 +71,8 @@ export type Frame = {
   // Execution latency (proposal accepted → block executed) over the last 60s,
   // parsed from monad-execution's journal. null when no recent log lines.
   exec: ExecStats | null
+  // Our leader rounds and network round stats from the bft journal (DEBUG lines).
+  rounds: RoundSummary | null
   tx: CounterCell
   txpool: number | null
   fwd: CounterCell
@@ -78,6 +102,8 @@ export type Snapshot = {
   bps: string
   lag: number
   execP99: number | null
+  led24h: number | null
+  missed24h: number | null
   peers: number | null
   p99: number | null
   rpcMs: number

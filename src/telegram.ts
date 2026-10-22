@@ -1,4 +1,4 @@
-import type { Config, Frame, Snapshot, Warning } from './types'
+import type { Config, Frame, RoundAgg, RoundSummary, Snapshot, Warning } from './types'
 
 export type Notifier = {
   send(text: string, key: string): void
@@ -16,6 +16,7 @@ function fmtSnap(s: Snapshot): string {
     `block  ${s.block} Δ${s.blockDelta ?? '?'} (${s.bps}/s)`,
     `lag    ${s.lag}`,
     `exec   ${s.execP99 !== null ? `p99 ${s.execP99}ms` : '?'}`,
+    `rounds ${s.led24h !== null ? `${s.led24h} led, ${s.missed24h} missed (24h)` : '?'}`,
     `peers  ${s.peers ?? '?'}`,
     `p99    ${s.p99 ?? '?'}ms`,
     `rpc    ${s.rpcMs}ms`,
@@ -43,6 +44,18 @@ export function downTelegramMessage(w: Warning): string {
   return `🚨 <b>${html(w.short)}</b>\n${html(w.detail)}`
 }
 
+function roundLines(r: RoundSummary): string[] {
+  const line = (label: string, a: RoundAgg) =>
+    `${label} led ${a.led}, ok ${a.ok}, missed ${a.missed + a.failed}, unseen ${a.notReceived}, blocks ${a.committed}, txs ${a.txs}`
+  const net = r.h24.netRounds > 0 ? (r.h24.netMissed / r.h24.netRounds * 100).toFixed(2) : '?'
+  return [
+    line('1h   ', r.h1),
+    line('24h  ', r.h24),
+    `net    ${r.roundsPerSec.toFixed(2)} rounds/s, TC ${r.h24.netMissed}/${r.h24.netRounds} (${net}%) 24h`,
+    ...(r.lastMissed ? [ `last   missed round ${r.lastMissed.round} at ${new Date(r.lastMissed.t).toISOString().slice(0, 19)}Z` ] : []),
+  ]
+}
+
 function statusIcon(s: Frame['status']): string {
   return s === 'crit' ? '🔴' : s === 'warn' ? '🟡' : '🟢'
 }
@@ -54,6 +67,7 @@ export function frameStatusMessage(f: Frame): string {
     `block  ${f.block} Δ${f.blockDelta ?? '?'} (${f.bps}/s)`,
     `lag    ${f.execLag}`,
     `exec   ${f.exec ? `p50 ${f.exec.p50}ms p99 ${f.exec.p99}ms max ${f.exec.max}ms` : '?'}`,
+    ...(f.rounds ? roundLines(f.rounds) : [ `rounds ?` ]),
     `peers  ${f.peers ?? '?'}`,
     `p99    ${f.p99 ?? '?'}ms`,
     `rpc    ${f.rpcMs}ms`,

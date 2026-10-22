@@ -19,7 +19,7 @@ function fmtDuration(ms: number): string {
 export function checkWarnings(
   blockDelta: number | null,
   dv: number | null, dt: number | null, dtc: number | null,
-  syncing: number | null, lagging: number, execP99: number | null,
+  syncing: number | null, lagging: number, execP99: number | null, missed10m: number | null,
   peers: number | null, latP99: number | null,
   rpcMs: number | null,
   thresholds: Thresholds,
@@ -34,6 +34,9 @@ export function checkWarnings(
 
   if (dv !== null && dv === 0 && blockDelta !== null && blockDelta > 0)
     w.push({ level: 'crit', key: 'NOT_VOTING', short: 'NOT VOTING', detail: 'Node is not creating votes while blocks advance — consensus participation lost' })
+
+  if (missed10m !== null && missed10m > 0)
+    w.push({ level: 'crit', key: 'MISSED_ROUND', short: `MISSED ROUND ×${missed10m}`, detail: `Our node was leader and its block did not make it in ${missed10m} round(s) during the last 10 min (round ended by timeout certificate)` })
 
   if (dt !== null && dt > 0)
     w.push({ level: 'warn', key: 'TMO', short: `TMO Δ${dt}`, detail: `${dt} new local timeout(s) — node failed to receive proposal in time` })

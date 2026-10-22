@@ -103,6 +103,28 @@ test('buildTickFrame prefers the execution journal over the lagging metric', () 
   assert.match(frame.logLine, /exec_p50=5ms exec_p99=49ms exec_max=136ms exec_n=150/)
 })
 
+test('buildTickFrame raises a critical MISSED_ROUND when our rounds timed out recently', () => {
+  const state = createCollectorState()
+  const sample = recordBlock(state, 110, 0)
+  const agg = { led: 3, ok: 2, missed: 1, failed: 0, notReceived: 0, committed: 2, txs: 20, netRounds: 1000, netMissed: 5 }
+  const { frame, snap } = buildTickFrame(state, {
+    ts: '12:00:00',
+    block: 110,
+    blockDelta: sample.blockDelta,
+    bps: sample.bps,
+    rpcMs: 10,
+    metrics: metrics({ execBlock: 110 }),
+    thresholds,
+    rounds: { h1: agg, h24: agg, missed10m: 1, lastMissed: { round: 5, t: 0 }, roundsPerSec: 2.5 },
+  })
+
+  assert.deepEqual(frame.warnings.map(w => w.key), [ 'MISSED_ROUND' ])
+  assert.equal(frame.status, 'crit')
+  assert.equal(snap.led24h, 3)
+  assert.equal(snap.missed24h, 1)
+  assert.match(frame.logLine, /led24=3 ok24=2 missed24=1 failed24=0 unseen24=0 blocks24=2 txs24=20 net_tc24=5\/1000/)
+})
+
 test('buildTickFrame warns when execution latency p99 exceeds exec_ms_max', () => {
   const state = createCollectorState()
   const sample = recordBlock(state, 110, 0)

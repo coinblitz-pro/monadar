@@ -3,7 +3,7 @@ import { BUILD_VERSION } from './build'
 import type { ExecSnapshot } from './exec_log'
 import { delta, formatUptime } from './format'
 import type { MetricsSnapshot } from './metric_snapshot'
-import type { CounterCell, Frame, HistoryEntry, Snapshot, Thresholds } from './types'
+import type { CounterCell, Frame, HistoryEntry, RoundSummary, Snapshot, Thresholds } from './types'
 
 const RATE_WINDOW = 30
 
@@ -100,6 +100,7 @@ function logLine(input: {
   execLag: number
   execBlock: number | null
   exec: Frame['exec']
+  rounds: RoundSummary | null
   leaderPct: string
   votedPct: number | null
   warningShorts: string[]
@@ -108,6 +109,7 @@ function logLine(input: {
   const warnTags = input.warningShorts.length > 0 ? ' WARN=' + input.warningShorts.join(',') : ''
   const execBlock = input.execBlock !== null ? input.execBlock : '?'
   const e = input.exec
+  const d = input.rounds?.h24
   const votedLog = input.votedPct !== null ? input.votedPct.toFixed(1) + '%' : '?'
   return [
     new Date().toISOString(),
@@ -121,6 +123,10 @@ function logLine(input: {
     `exec=${execBlock}`,
     ...(e ? [`exec_p50=${e.p50}ms`, `exec_p99=${e.p99}ms`, `exec_max=${e.max}ms`, `exec_n=${e.count}`] : []),
     `tx_commits=${m.txCommits ?? '?'}`,
+    ...(d ? [
+      `led24=${d.led}`, `ok24=${d.ok}`, `missed24=${d.missed}`, `failed24=${d.failed}`, `unseen24=${d.notReceived}`,
+      `blocks24=${d.committed}`, `txs24=${d.txs}`, `net_tc24=${d.netMissed}/${d.netRounds}`,
+    ] : []),
     `txpool=${m.txpool ?? '?'}`, `fwd=${m.fwd ?? '?'}`, `p99=${m.latP99 ?? '?'}ms`,
     `rpc=${input.rpcMs}ms`,
     `key=${shortKey(m.nodeKey)}`, `net=${m.network}`,
@@ -141,6 +147,7 @@ export function buildTickFrame(
     metrics: MetricsSnapshot
     thresholds: Thresholds
     exec?: ExecSnapshot
+    rounds?: RoundSummary | null
   },
 ): BuiltFrame {
   const m = input.metrics
@@ -177,7 +184,11 @@ export function buildTickFrame(
     syncPct = ((m.syncProgress / m.syncTarget) * 100).toFixed(2)
   }
 
-  const warnings = checkWarnings(input.blockDelta, dv, dt, dtc, m.syncing, execLag, exec?.p99 ?? null, m.peers, m.latP99, input.rpcMs, input.thresholds)
+  const rounds = input.rounds ?? null
+  const warnings = checkWarnings(
+    input.blockDelta, dv, dt, dtc, m.syncing, execLag, exec?.p99 ?? null, rounds?.missed10m ?? null,
+    m.peers, m.latP99, input.rpcMs, input.thresholds,
+  )
   const hasCrit = warnings.some(w => w.level === 'crit')
   const hasWarn = warnings.some(w => w.level === 'warn')
 
@@ -187,6 +198,8 @@ export function buildTickFrame(
     bps: input.bps,
     lag: execLag,
     execP99: exec?.p99 ?? null,
+    led24h: rounds?.h24.led ?? null,
+    missed24h: rounds ? rounds.h24.missed + rounds.h24.failed : null,
     peers: m.peers,
     p99: m.latP99,
     rpcMs: input.rpcMs,
@@ -223,6 +236,7 @@ export function buildTickFrame(
     lagEvtDelta: dl,
     execBlock,
     exec,
+    rounds,
     tx: counter(m.txCommits, state.prevTxCommits),
     txpool: m.txpool,
     fwd: counter(m.fwd, state.prevFwd),
@@ -248,6 +262,7 @@ export function buildTickFrame(
       execLag,
       execBlock,
       exec,
+      rounds,
       leaderPct,
       votedPct,
       warningShorts: warnings.map(w => w.short),
@@ -293,6 +308,7 @@ export function errorFrame(
     lagEvtDelta: null,
     execBlock: null,
     exec: null,
+    rounds: null,
     tx: z(),
     txpool: null,
     fwd: z(),

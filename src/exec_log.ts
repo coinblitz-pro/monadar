@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'child_process'
+import { followJournal } from './journal'
 import type { ExecStats } from './types'
 
 // Per-block execution latency from monad-execution's journal. Each executed
@@ -9,7 +9,6 @@ import type { ExecStats } from './types'
 // difference is the real execution latency — no metric export delay involved.
 
 const WINDOW_MS = 60_000
-const RESTART_DELAY_MS = 5_000
 const LINE_RE = /^(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)\.(\d+) .*__exec_block,bl=(\d+),.*?,ts=(\d+)/
 
 export type ExecSample = { block: number; latencyMs: number; doneMs: number }
@@ -60,40 +59,11 @@ export function createExecWindow(windowMs = WINDOW_MS) {
   return { push, snapshot }
 }
 
-// Follows `journalctl -f` for monad-execution and feeds parsed lines into a
-// window. Restarts journalctl if it exits. Needs root or the systemd-journal group.
+// Follows the monad-execution journal and feeds parsed lines into a window.
 export function startExecLogTail(window = createExecWindow(), unit = 'monad-execution') {
-  let child: ChildProcess | null = null
-  let stopped = false
-
-  function start() {
-    let buf = ''
-    child = spawn('journalctl', [ '-f', '-n', '0', '-o', 'cat', '-u', unit ], { stdio: [ 'ignore', 'pipe', 'ignore' ] })
-    child.stdout!.setEncoding('utf-8')
-    child.stdout!.on('data', (chunk: string) => {
-      buf += chunk
-      let nl: number
-      while ((nl = buf.indexOf('\n')) !== -1) {
-        const s = parseExecBlockLine(buf.slice(0, nl))
-        buf = buf.slice(nl + 1)
-        if (s) window.push(s)
-      }
-    })
-    child.on('error', () => {})
-    child.on('exit', () => {
-      child = null
-      if (!stopped) setTimeout(start, RESTART_DELAY_MS).unref()
-    })
-  }
-
-  start()
-  process.on('exit', () => child?.kill())
-
-  return {
-    snapshot: window.snapshot,
-    stop() {
-      stopped = true
-      child?.kill()
-    },
-  }
+  const journal = followJournal(unit, (line) => {
+    const s = parseExecBlockLine(line)
+    if (s) window.push(s)
+  })
+  return { snapshot: window.snapshot, stop: journal.stop }
 }

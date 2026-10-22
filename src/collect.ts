@@ -1,5 +1,6 @@
 import { createAlertProcessor } from './alerts'
 import { config, METRICS_URL, nodeKey, otlpListen, thresholds } from './config'
+import { startBftLogTail } from './bft_log'
 import { getHistory, pushHistory } from './event_history'
 import { startExecLogTail } from './exec_log'
 import { buildTickFrame, createCollectorState, errorFrame, recordBlock } from './frame'
@@ -18,7 +19,7 @@ const RPC_DOWN = downWarning('crit', 'RPC_DOWN', 'RPC DOWN', 'RPC endpoint not r
 const METRICS_DOWN = downWarning('warn', 'METRICS_DOWN', 'METRICS DOWN', 'Metrics endpoint unavailable — node process may be down')
 const DOWN_SNAP: Snapshot = {
   block: 0, blockDelta: null, bps: '?', lag: 0, execP99: null, peers: null, p99: null,
-  rpcMs: 0, syncing: null, syncPct: null, uptime: '?', ver: '?',
+  rpcMs: 0, syncing: null, syncPct: null, uptime: '?', ver: '?', led24h: null, missed24h: null,
 }
 // bft exports every second; no export for this long means the node isn't pushing.
 const OTLP_STALE_MS = 15_000
@@ -47,6 +48,8 @@ export function createCollector() {
     notifier: createTelegramNotifier(config.telegram),
   })
   const execLog = startExecLogTail()
+  const bftLog = startBftLogTail()
+  bftLog.setSelf(nodeKey)
   const otlpReady = startMetricsSource()
   const startedAt = Date.now()
 
@@ -88,15 +91,19 @@ export function createCollector() {
       return { ...errorFrame(ts, getHistory(), 'metrics', { block, blockDelta, bps }), status: 'warn' }
     }
 
+    const metrics = readMetricsSnapshot(mt)
+    // Without node_key in the config, learn our key from the secp_key metric label.
+    if (!nodeKey) bftLog.setSelf(metrics.nodeKey)
     const built = buildTickFrame(state, {
       ts,
       block,
       blockDelta,
       bps,
       rpcMs,
-      metrics: readMetricsSnapshot(mt),
+      metrics,
       thresholds,
       exec: execLog.snapshot(),
+      rounds: bftLog.summary(),
     })
     const newCrit = alerts.processWarnings(ts, built.frame.warnings, built.snap)
     if (built.restarted) alerts.notifyRestart(ts, built.uptime, built.snap)

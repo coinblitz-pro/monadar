@@ -121,6 +121,17 @@ unit's `ExecStart`, so the daemon runs with the same configuration.
 
 Execution latency comes from `__exec_block` lines in the `monad-execution` journal: each line has the time execution finished and `ts`, when BFT accepted the proposal. The daemon runs `journalctl -f`, so it needs root or the `systemd-journal` group. If there are no recent lines, monadar falls back to the `monad_execution_ledger_block_num` metric. That metric lags by the OTLP export interval.
 
+Leader rounds come from monad-bft's DEBUG journal lines `leader for round`, `proposal message`, `advancing round` and `committed block`. monadar follows this journal with `journalctl -f` too. A round is classified 10 rounds after it happened:
+
+| Proposal from the leader | Timeout certificate for the round | Result |
+|---|---|---|
+| yes | no | `ok` |
+| no | yes | `missed` (the leader's block never came) |
+| yes | yes | `failed` (proposed but did not get enough votes) |
+| no | no | `unseen` (the network moved on, but this node never saw the proposal) |
+
+The dashboard row shows our rounds over 24h (with 1h next to it): `led24h`, `missed` (missed + failed), `unseen`, committed `blocks` and their `txs`. It also shows `net_tc`, the share of all network rounds that ended by TC, with rounds/s. A critical `MISSED ROUND` alert, sent to Telegram after `delay_ticks`, fires while any of our rounds missed or failed in the last 10 minutes. Our key is `node_key`, or the `secp_key` metric label when it is not set. Counters are kept in memory and reset when monadar restarts. If bft logs at INFO only, the row is not shown.
+
 ## Configuration
 
 `monadar --init` writes a template `monadar.config.json`:
