@@ -174,7 +174,8 @@ impl Collector {
             return self.degraded(ts, FrameError::Rpc, None, MetricsState::Pending, j);
         };
 
-        let sample = record_block(&mut self.state, block, now_ms());
+        let now = now_ms();
+        let sample = record_block(&mut self.state, block, now);
         let obs = RpcObs { block_delta: sample.block_delta, stalled_ms: sample.stalled_ms, rpc_ms };
         let metrics = self.metrics_text().await;
         let j = self.journals();
@@ -201,6 +202,7 @@ impl Collector {
                 rounds: j.rounds,
                 stalled_ms: sample.stalled_ms,
                 bft_silent_ms: j.bft_silent_ms,
+                now_ms: now,
             },
         );
         let new_crit = self.alerts.process(&ts, &built.checks, &built.snap);

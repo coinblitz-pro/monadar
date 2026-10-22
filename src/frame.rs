@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::alerts::{Check, MetricObs, MetricsState, RpcObs, WarnInput, check_warnings, firing};
+use crate::alerts::{Check, MetricObs, MetricsState, RpcObs, VoteStall, WarnInput, check_warnings, firing};
 use crate::bft_log::size_ratio;
 use crate::config::BUILD_VERSION;
 use crate::exec_log::ExecSnapshot;
@@ -25,6 +25,7 @@ pub struct CollectorState {
     exec_lag: i64,
     block_samples: VecDeque<(i64, i64)>, // (time ms, block)
     last_advance_ms: Option<i64>,
+    last_vote: Option<(i64, i64)>, // (time ms, block) when votes last grew
 }
 
 pub struct BlockSample {
@@ -55,6 +56,7 @@ pub struct TickInput<'a> {
     pub rounds: Option<RoundSummary>,
     pub stalled_ms: i64,
     pub bft_silent_ms: Option<i64>,
+    pub now_ms: i64,
 }
 
 pub fn status_of(warnings: &[crate::types::Warning]) -> Status {
@@ -111,6 +113,7 @@ impl CollectorState {
         self.prev_tx_commits = None;
         self.prev_proposals = None;
         self.prev_fwd = None;
+        self.last_vote = None;
     }
 }
 
@@ -212,6 +215,10 @@ pub fn build_tick_frame(state: &mut CollectorState, input: TickInput) -> BuiltFr
     }
 
     let dv = delta(m.votes, state.prev_votes);
+    if m.votes.is_some() && (dv != Some(0.0) || state.last_vote.is_none()) {
+        state.last_vote = Some((input.now_ms, input.block));
+    }
+    let votes = m.votes.and(state.last_vote).map(|(t, b)| VoteStall { ms: input.now_ms - t, blocks: input.block - b });
     let dt = delta(m.timeouts, state.prev_timeouts);
     let dtc = delta(m.tc, state.prev_tc);
     let dl = delta(m.lagging, state.prev_lagging);
@@ -237,7 +244,7 @@ pub fn build_tick_frame(state: &mut CollectorState, input: TickInput) -> BuiltFr
     let checks = check_warnings(
         &WarnInput {
             rpc: Some(RpcObs { block_delta: input.block_delta, stalled_ms: input.stalled_ms, rpc_ms: input.rpc_ms }),
-            metrics: MetricsState::Up(MetricObs { dv, dt, dtc, syncing: m.syncing, peers: m.peers, lat_p99: m.lat_p99 }),
+            metrics: MetricsState::Up(MetricObs { votes, dt, dtc, syncing: m.syncing, peers: m.peers, lat_p99: m.lat_p99 }),
             lag: Some(exec_lag),
             exec_p99: exec.map(|e| e.p99),
             rounds: rounds.as_ref(),
@@ -445,6 +452,7 @@ mod tests {
                 rounds,
                 stalled_ms: s.stalled_ms,
                 bft_silent_ms: None,
+                now_ms,
             },
         )
     }
@@ -551,6 +559,25 @@ mod tests {
         assert!(pct[0].detail.contains("not our node"));
         assert_eq!(warn(NetWindow { rounds: 1500, tc: 12, max_tc_run: 3 })[0].short, "NET TC ×3 in a row");
         assert!(warn(NetWindow { rounds: 50, tc: 10, max_tc_run: 1 }).is_empty(), "too few rounds for a share");
+    }
+
+    #[test]
+    fn not_voting_needs_votes_flat_for_several_seconds_while_blocks_advance() {
+        let mut st = CollectorState::default();
+        let mut not_voting = |block: i64, votes: f64, now_ms: i64| -> bool {
+            let m = MetricsSnapshot { exec_block: Some(block as f64), votes: Some(votes), ..metrics() };
+            let b = tick(&mut st, block, now_ms, &m, ExecSnapshot::default(), None);
+            b.frame.warnings.iter().any(|w| w.key == "NOT_VOTING")
+        };
+        not_voting(100, 50.0, 0);
+        // The vote export lags the block by a tick.
+        assert!(!not_voting(103, 50.0, 1000));
+        assert!(!not_voting(105, 52.0, 2000));
+        assert!(!not_voting(110, 52.0, 6000));
+        assert!(not_voting(115, 52.0, 7000));
+        assert!(!not_voting(116, 53.0, 8000), "clears once votes grow");
+        // Blocks stalled too: that is STUCK, not a voting problem.
+        assert!(!not_voting(116, 53.0, 14000));
     }
 
     #[test]

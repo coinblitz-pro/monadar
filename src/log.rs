@@ -18,7 +18,8 @@ static STATE: Mutex<LogState> = Mutex::new(LogState { buffer: String::new(), rec
 // Size-based rotation: when the log reaches log_max_bytes, shift backups
 // (file.N-1 → file.N, …, file.1 → file.2) and move the current file to file.1,
 // so the live file starts fresh. Keeps at most log_keep numbered backups.
-fn rotate_if_needed(file: &str, max_bytes: i64, keep: i64) {
+// The events file is rotated the same way.
+pub fn rotate_if_needed(file: &str, max_bytes: i64, keep: i64) {
     if max_bytes <= 0 {
         return;
     }

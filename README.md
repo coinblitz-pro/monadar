@@ -218,6 +218,9 @@ file is rotated by size:
 - `log.keep` (default `5`) — number of numbered backups to keep (`monadar.log.1` … `monadar.log.N`);
   on rotation the live file becomes `monadar.log.1`, older backups shift up, and the oldest is dropped.
 
+The event log (`events.log`) is rotated with the same settings. Only its end is read: the last
+few events at startup and as many as fit on screen in the **Ctrl+E** view.
+
 The viewer also keeps the most recent lines in memory for the **Ctrl+O** log view, regardless
 of whether a log file is configured.
 
@@ -227,6 +230,10 @@ Each tick every rule is evaluated against the data it needs: low peers, high p99
 lag and latency, our missed and late rounds, network TC rate, plus critical conditions
 (state-syncing, block not advancing, not voting, RPC down). Warnings show inline (yellow/red
 cells) and in the event history. Critical ones that persist `delay_ticks` go to Telegram.
+
+`NOT VOTING` fires when our vote counter has not grown for 5 s while blocks advanced. The
+counter comes with the OTLP export, which can land a tick after the block, so a single flat
+tick is not reported.
 
 A rule whose data source is unavailable is **unknown**, not clear. When RPC is down, the
 metrics endpoint is down, the execution journal goes quiet, or a metric disappears, the rules

@@ -66,13 +66,24 @@ pub struct RpcObs {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MetricObs {
-    pub dv: Option<f64>,
+    pub votes: Option<VoteStall>,
     pub dt: Option<f64>,
     pub dtc: Option<f64>,
     pub syncing: Option<f64>,
     pub peers: Option<f64>,
     pub lat_p99: Option<f64>,
 }
+
+// Time and blocks since our vote counter last grew.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct VoteStall {
+    pub ms: i64,
+    pub blocks: i64,
+}
+
+// The vote counter arrives with the OTLP export, which can land a tick after
+// the block it covers, so one flat tick while blocks advance is normal.
+const NOT_VOTING_MS: i64 = 5_000;
 
 #[derive(Clone, Copy, Debug)]
 pub enum MetricsState {
@@ -147,20 +158,18 @@ pub fn check_warnings(i: &WarnInput, t: &Thresholds) -> Vec<Check> {
         },
     ));
 
-    let voting = match (i.rpc.and_then(|r| r.block_delta), m.and_then(|m| m.dv)) {
-        (Some(bd), Some(dv)) => Some(if dv == 0.0 && bd > 0 { 1.0 } else { 0.0 }),
-        _ => None,
-    };
+    let stall = i.rpc.and(m.and_then(|m| m.votes));
     w.push(rule(
         "NOT_VOTING",
-        voting,
+        stall.map(|s| (s.ms >= NOT_VOTING_MS && s.blocks > 0) as u8 as f64),
         |v| v == 1.0,
         |_| {
+            let s = stall.unwrap_or_default();
             warning(
                 Level::Crit,
                 "NOT_VOTING",
                 "NOT VOTING".into(),
-                "Node is not creating votes while blocks advance — consensus participation lost".into(),
+                format!("No votes for {} while {} blocks advanced — consensus participation lost", fmt_duration(s.ms), s.blocks),
             )
         },
     ));

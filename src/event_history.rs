@@ -18,10 +18,10 @@ pub fn push_history(entry: HistoryEntry) {
 }
 
 pub fn seed_history() {
-    let events = load_events();
+    let events = load_events(MAX_HISTORY);
     let mut h = HISTORY.lock().unwrap();
     h.clear();
-    for e in &events[events.len().saturating_sub(MAX_HISTORY)..] {
+    for e in &events {
         h.push_back(HistoryEntry { time: e.at.get(11..19).unwrap_or("").to_string(), level: e.level, text: e.text.clone() });
     }
 }
