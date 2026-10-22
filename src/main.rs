@@ -136,7 +136,9 @@ async fn run_foreground(s: &Settings) {
 async fn main() {
     let s = config::init();
 
-    if s.args.should_init {
+    if s.args.version {
+        println!("monadar {}", config::BUILD_VERSION);
+    } else if s.args.should_init {
         write_config_template();
     } else if s.args.install {
         install::install(s.args.print);

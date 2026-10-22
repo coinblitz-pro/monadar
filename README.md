@@ -66,7 +66,26 @@ x86-64 CPU target, not `target-cpu=native`, so the binary runs on any x86_64 hos
 ```
 
 The binary is self-contained: copy it to the node (e.g. `/usr/local/bin/monadar`).
-The git hash of the build is embedded, so the viewer can tell when the daemon runs a different build.
+
+### Releases and verification
+
+Pushing a tag `v*` runs `.github/workflows/release.yml`. The workflow tests, builds with the
+same `scripts/build-musl.sh`, and publishes `monadar-<tag>-x86_64-linux-musl` with `SHA256SUMS`
+as a GitHub release.
+
+The build is reproducible. The toolchain is a single container image pinned by digest (rustc,
+musl, linker), crates are pinned by `Cargo.lock`, and paths inside the container are fixed. So
+anyone can check that a release binary was built from the tagged source:
+
+```sh
+sha256sum -c SHA256SUMS                         # the download is intact
+git checkout v1.0.0 && ./scripts/build-musl.sh  # prints the same sha256 as SHA256SUMS
+```
+
+`monadar --version` prints the build: `git describe` of the source, which is the tag for a
+release. The viewer uses it to tell when the daemon runs a different build. When the repository
+is public, the workflow also attaches a signed build provenance attestation, and
+`gh attestation verify <file> -R coinblitz-pro/monadar` checks it.
 
 The examples below use `monadar` to mean that binary.
 
@@ -92,6 +111,7 @@ service at all, use `monadar --foreground`.
 | `monadar uninstall` | Remove the service unit |
 | `monadar status` | Probe the socket and report whether the daemon is running |
 | `monadar --init` | Write a `monadar.config.json` template next to the binary |
+| `monadar --version` | Print the build version (`git describe` of the source) |
 
 ### Service setup
 

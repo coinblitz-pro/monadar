@@ -1,6 +1,6 @@
 use std::process::Command;
 
-// Bakes the git short hash into the binary, so the viewer can tell when it
+// Bakes `git describe` (tag, or short hash, plus -dirty) into the binary, so the viewer can tell when it
 // talks to a daemon built from a different revision.
 // MONADAR_GIT_HASH overrides it for builds without git (the musl container).
 fn main() {
@@ -13,7 +13,7 @@ fn main() {
 
 fn git_hash() -> String {
     Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
+        .args(["describe", "--tags", "--always", "--dirty", "--abbrev=10"])
         .output()
         .ok()
         .filter(|o| o.status.success())

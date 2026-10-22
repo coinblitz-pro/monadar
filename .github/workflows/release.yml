@@ -1,0 +1,66 @@
+name: release
+
+# Push a tag v* → test, build the static Linux binary with scripts/build-musl.sh
+# (pinned image, reproducible), publish it with SHA256SUMS as a GitHub release.
+# Manual runs build and keep the binary as a workflow artifact only.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Test
+        run: ./scripts/build-musl.sh test
+
+      - name: Build
+        run: ./scripts/build-musl.sh
+
+      - name: Package
+        run: |
+          name="monadar-$(git describe --tags --always --abbrev=10)-x86_64-linux-musl"
+          mkdir dist
+          cp target/x86_64-unknown-linux-musl/release/monadar "dist/$name"
+          (cd dist && sha256sum "$name" > SHA256SUMS && cat SHA256SUMS)
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: monadar
+          path: dist/
+
+      # Signed build provenance (gh attestation verify). GitHub offers it for
+      # public repositories and Enterprise Cloud, so it is skipped while the
+      # repository is private on the Free plan.
+      - name: Attest
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/monadar-*
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo 'Static x86_64 Linux binary (musl), built by this workflow from the tagged commit.'
+            echo
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+            echo
+            echo 'Verify the download: `sha256sum -c SHA256SUMS`.'
+            echo "Reproduce it: \`git checkout $GITHUB_REF_NAME && ./scripts/build-musl.sh\` gives the same sha256."
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
