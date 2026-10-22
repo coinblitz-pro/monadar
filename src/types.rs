@@ -169,6 +169,7 @@ pub struct Warning {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HistoryEntry {
+    // Local `YYYY-MM-DD HH:MM:SS` once recorded; shown via event_time().
     pub time: String,
     pub level: EventLevel,
     pub text: String,

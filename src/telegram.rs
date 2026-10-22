@@ -8,6 +8,7 @@ use crate::alerts::fmt_duration;
 use crate::bft_log::size_ratio;
 use crate::config::BUILD_VERSION;
 use crate::format::{js_round, num};
+use crate::history_render::event_time;
 use crate::http;
 use crate::notify::{NoticeKind, Pending};
 use crate::rich::{Block, Msg, TableKind, Text, b, code, i, p};
@@ -257,7 +258,7 @@ pub fn events_message(f: &Frame) -> Msg {
                     EventLevel::Crit | EventLevel::Error => "🔴",
                     EventLevel::Warn => "🟡",
                 };
-                vec![vec![p(&e.time)], vec![p(icon)], vec![p(&e.text)]]
+                vec![vec![p(event_time(&e.time))], vec![p(icon)], vec![p(&e.text)]]
             })
             .collect();
         m.push(Block::Table(TableKind::Rows, rows));

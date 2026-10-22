@@ -25,9 +25,8 @@ pub fn persist_event(e: &HistoryEntry) {
     let Some(s) = try_settings() else { return };
     let Some(file) = &s.events_file else { return };
     let _ = fs::create_dir_all(dirname(file));
-    let stamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(file) {
-        let _ = writeln!(f, "{stamp}\t{}\t{}", e.level.as_str(), e.text);
+        let _ = writeln!(f, "{}\t{}\t{}", e.time, e.level.as_str(), e.text);
     }
     rotate_if_needed(file, s.log_max_bytes, s.log_keep);
 }

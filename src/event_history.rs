@@ -8,7 +8,8 @@ const MAX_HISTORY: usize = 5;
 
 static HISTORY: Mutex<VecDeque<HistoryEntry>> = Mutex::new(VecDeque::new());
 
-pub fn push_history(entry: HistoryEntry) {
+pub fn push_history(mut entry: HistoryEntry) {
+    entry.time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     persist_event(&entry);
     let mut h = HISTORY.lock().unwrap();
     h.push_back(entry);
@@ -22,7 +23,7 @@ pub fn seed_history() {
     let mut h = HISTORY.lock().unwrap();
     h.clear();
     for e in &events {
-        h.push_back(HistoryEntry { time: e.at.get(11..19).unwrap_or("").to_string(), level: e.level, text: e.text.clone() });
+        h.push_back(HistoryEntry { time: e.at.clone(), level: e.level, text: e.text.clone() });
     }
 }
 
