@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/logo.png" alt="monadar" width="160">
-</p>
-
 # monadar
 
 Monitoring for a [Monad](https://monad.xyz) validator. One static binary runs as a daemon next
@@ -9,28 +5,11 @@ to the node: it reads the node's JSON-RPC (`eth_blockNumber`), receives its OTLP
 the monad-bft and monad-execution journals, and sends Telegram alerts. A viewer attaches to the
 daemon and shows a live dashboard.
 
-```
-monadar  21:50:13  035c51..6d4d · mainnet · 0.16.5 · up 10h23m · stake 0.35%
-
-╭─ chain ─────────────────╮ ╭─ votes ───────────╮ ╭─ leader · 24h ──╮ ╭─ network ───────────╮ ╭─ mempool ───────╮
-│ block    115699304 Δ3   │ │ voted  100.0% 10m │ │ led     499     │ │ peers     207       │ │ txpool  0       │
-│ rate     3.31 blocks/s  │ │ votes  3.31 /s    │ │ led 1h  45      │ │ sessions  209       │ │ max     42 10m  │
-│ exec     115699304 (+0) │ │ tmo    0 10m      │ │ missed  0       │ │ tc        0 10m     │ │ fwd     480 10m │
-│ exec_ms  6/29ms         │ │                   │ │ txs     8874    │ │ delay     33/188ms  │ │                 │
-│ tps      64             │ │                   │ │ size    99% net │ │ final     622/760ms │ │                 │
-│                         │ │                   │ │                 │ │ recv_p99  170ms     │ │                 │
-╰─────────────────────────╯ ╰───────────────────╯ ╰─────────────────╯ ╰─────────────────────╯ ╰─────────────────╯
-
-● OK
-
-Recent events:
-10-22 16:59:54 ● Node is not creating votes while blocks advance: consensus participation lost
-10-22 16:59:55 ✓ Resolved: NOT VOTING (1s)
-```
+![monadar dashboard on a mainnet validator](assets/dashboard.svg)
 
 ## What it watches
 
-- Block production, execution lag and execution latency, peers, broadcast p99, RPC
+- Block production, execution lag and execution time, peers, broadcast p99, RPC
 - Our votes and leader rounds: proposed, missed, unseen, late, block size against the network
 - Network health: share of rounds ended by timeout certificates
 - Telegram alerts with a delivery queue that survives outages and restarts, plus `/status` and
